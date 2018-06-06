@@ -23,7 +23,7 @@ dat = dat %>% gather(key = "transform", value = "t_val", temperature, lt, diff, 
 
 #Plot hourly data.
 dat %>% arrange(source) %>%
-  ggplot(., aes(doy, t_val, col = source, alpha = 0.5)) + geom_point() +
+  ggplot(., aes(doy, t_val, col = source, alpha = 0.5)) + geom_line() +
   facet_wrap(~transform, scales = "free")
 
 #ACF plots
@@ -49,7 +49,7 @@ d_dat = d_dat %>% gather(key = "transform", value = "t_val", temperature, lt, di
 
 #Plot daily data.
 d_dat %>% arrange(source) %>%
-  ggplot(., aes(doy, t_val, col = source, alpha = 0.5)) + geom_point() +
+  ggplot(., aes(doy, t_val, col = source, alpha = 0.5)) + geom_line() +
   facet_wrap(~transform, scales = "free")
 
 #ACF plots
@@ -64,3 +64,29 @@ d_spread %>% filter(source == "test") %>% .$ldiff %>% acf(x = ., na.action = na.
 
 
 # In comparing known air and water temperature data it appears that water temperature is more likely to have momentum than air. In other words after differencing the logged daily data at lag 1, the acf function shows no evidence of autocorrelation in the air but some evidence in water at lag 1 and 2. This suggests one type of data has an AR1 process while the other is just a random walk. In the hourly data, both data types show autocorrelation. As such, we may be able to tease apart the two processes by using a model with just random noise and the other having an AR1 process (see AR1_vs_RW_Daily.stan file).
+
+
+x = d_dat %>% arrange(day) %>% filter(source == "air", transform == "temperature") %>% .$t_val
+y = d_dat %>% arrange(day) %>% filter(source == "water", transform == "temperature") %>% .$t_val
+
+aic_mat = matrix(nrow = 90, ncol = 4)
+for(i in 10:100){
+  print(i)
+
+  ARmod = arima(x[1:i], order = c(1,0,0))
+  RWmod = arima(x[1:i], order = c(0,0,0))
+
+  aic_mat[i,1] = ARmod$aic
+  aic_mat[i,2] = RWmod$aic
+
+  ARmod = arima(y[1:i], order = c(1,0,0))
+  RWmod = arima(y[1:i], order = c(0,0,0))
+
+  aic_mat[i,3] = ARmod$aic
+  aic_mat[i,4] = RWmod$aic
+}
+#This plot shows that at about 20 data points an AR1 model overtakes a Random Walk model for air temperature. Thus if the dataset has air temperature at the tips and tails it will likely be best described by a RW model but if the logger is exposed for more than 20 continuous datapoints it's probably more likley an AR1 model.
+plot(aic_mat[1:60,1]~aic_mat[1:60,2], xlab = "RW", ylab = "AR")
+abline(1,1)
+
+
