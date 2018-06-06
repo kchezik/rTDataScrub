@@ -1,0 +1,763 @@
+---
+title: "Square_One"
+author: "Kyle Chezik"
+date: "5/18/2018"
+output: html_document
+---
+
+```{r StartUp Stan}
+#Get necessary libraries.
+library(tidyverse); library(rstan)
+#Initiate cores and make sure unchanged models are not recompiled.
+options(mc.cores = parallel::detectCores(), auto_write = TRUE)
+```
+
+These functions create simulated data and offer tools to estimate parameters quickly as priors to subsequent models.
+
+```{r Generative Functions}
+# Create annual temperature curve.
+alpha_est = function(){
+  #k = rnorm(1,.15,.01) #Rate of change between max and min mean t.
+  k = .15
+  #b = rnorm(1,0,.01) #Minimum mean temperature.
+  b = 0
+  #alpha_max = rnorm(1,27,.1)-b #Maximum mean temperature minus the minimum mean temperature.
+  alpha_max = 27
+  #m = rnorm(1,16,.1) #Air temperature that is the mid point between alpha_max and b.
+  m = 16
+  data.frame(alpha_max, k, b, m)
+}
+create = function(A, AR, s_t=c(0,0), meanT, years = 1, tao){
+  N = years*365 * 24 # Number of samples.
+  d_cycle = cos((years*2)*pi*1:N/N + tao*pi) # Generic season cycle.
+  sd = exp(d_cycle)*s_t[1] # Changing standard deviation by season.
+  h_cycle = sd*exp(cos((years*2)*pi*1:N/24 + tao*pi)) # Daily cycle by hour.
+  noise = arima.sim(model = list(ar = AR), sd = sd*s_t[2], n = N) # Seasonally adjusted AR1 correlated noise.
+  (d_cycle * A + meanT) + h_cycle + noise #Return combined data.
+}
+# Simulate water infiltrated ground temperature data.
+ground = function(years = 1, t0 = 4.5, theta = 0.5, sigma = .3){
+  N = years*365*24
+  t0 = log(t0)
+  epsilon <- vector(length = N, mode = "numeric")
+  y <- vector(length = N, mode = "numeric")
+  
+  y[1] <- rnorm(1, t0, 1)
+  epsilon[1] <- y[1] - t0
+  for (i in 2:N) {
+    y[i] <- exp(rnorm(1, t0 + theta * epsilon[i - 1] - (sigma^2)/2, sigma))
+    epsilon[i] <- log(y[i]) - t0 - theta * epsilon[i - 1] + (sigma^2)/2
+  }
+  y
+}
+# Extract chunks of data randomly within a year.
+period = function(df, col){
+  library(tidyverse);library(lubridate)
+  init = sample_n(df, 1)$time
+  fin = init  + ddays(round(psych::logistic(rnorm(n = 1, mean = psych::logit(yday(init)/365), sd = 1))*365))
+  names(df)[[col]] = "temperature"
+  filter(df, time >= init, time <= fin) %>% select(time, temperature)
+}
+# Eliminate data from the dataframe that has been used so there isn't overlap.
+reduce = function(df, sub_df){
+  df[!(df$time %in% sub_df$time),]
+}
+# This function is a wrapper that uses samp_per(), create(), ground(), period() and reduce() to generate random data over the course of a year that is made up of three different functions.
+generate = function(air_ends = F, air = F, ground_sat = F, years = 1, randomize = c(T,T,T), global){
+  library(tidyverse); library(lubridate)
+  
+  # Sample location latitude.
+  latitude = rnorm(1,50,4) #45 to 60ºN with a mean of 50.
+  
+  #Air parameters. http://www-das.uwyo.edu/~geerts/cwx/notes/chap16/geo_clim.html
+  air_A = rnorm(1, .4*latitude, latitude*.02) # Temperature range is latitude dependant.
+  air_AR = rbeta(n = 1, shape1 = 500, shape2 = 25)
+  air_s_t = c(rlnorm(1,log(1),.07), rlnorm(1,log(.5),.07)) # d_sd N(1,.2) and h_sd N(.5,.2)
+  air_meanT = 27-(latitude-16)*.65 + rnorm(1,0,.25)
+  
+  #Water parameters.
+  water_meanT = rnorm(1,(global$alpha_max/(1+exp(-global$k*(air_meanT-global$m))))+global$b,0.1)
+  
+  #relationship between W_mean and W_A.
+  alpha_inf = 13.5
+  if(water_meanT<alpha_inf) water_A = water_meanT
+  else water_A = alpha_inf - (water_meanT-alpha_inf)
+  
+  water_AR = rbeta(n = 1, shape1 = 400, shape2 = 20)
+  water_s_t = c(rlnorm(1,log(0.3),.07), rlnorm(1,log(.5),.07)) # d_sd N(.3,.05) and h_sd N(.5,.1)
+  #Ground as some function of the water mean temperature.
+  ground_meanT = rlnorm(1,log(water_meanT),.2)
+  #Seasonal Period Parameter
+  tao = rbeta(1,1,1) # Randomize sampling period.
+  #Create Data.
+  df = data.frame(
+    air = create(A = air_A, AR = air_AR, s_t = air_s_t, meanT = air_meanT, years = years, tao = tao),
+    water = create(A = water_A, AR = water_AR, s_t = water_s_t, meanT = water_meanT, years = years, tao = tao),
+    ground = ground(years = years, t0 = ground_meanT), # Generate ground data.
+  
+    # Add a time component so the data can be sampled.
+    time = seq(from = ymd_h("2000-07-15 00") + ddays(round(182.5*tao)),
+               by = "hour", length.out = years*365*24))
+  
+  #Add air to the begining and end.
+  if(randomize[1] == T & air_ends == F) {
+    ans = sample(x = c(0,1), size = 1, prob = c(.1,.9))
+    if(ans == 1) air_ends = T
+    ans = 0
+  }
+  if(air_ends == T){
+    ends = filter(df,time <= floor_date(min(time), unit = "day")+dhours(23) | time >= floor_date(max(time))-dhours(23)) %>% 
+      select(time, air) %>% 
+      rename(., temperature = air) %>% 
+      mutate(source = "air")
+    df = reduce(df, ends)
+  }
+  
+  #Select air error region.
+  if(randomize[2] == T & air == F) {
+    ans = sample(x = c(0,1), size = 1, prob = c(.3,.7))
+    if(ans == 1) air = T
+    ans = 0
+  }
+  if(air == T){
+    airT = period(df, 1) %>%
+      mutate(source = "air")
+    df = reduce(df, airT)
+  }
+  
+  #Add saturated earth data.
+  if(randomize[3] == T & ground_sat == F) {
+    ans = sample(x = c(0,1), size = 1, prob = c(.7,.3))
+    if(ans == 1) ground_sat = T
+    ans = 0
+  }
+  if(ground_sat == T){
+    cc = 2
+    while(cc != 1){
+      ground = period(df,3)
+      cc = length(unique(diff(ground$time)))
+    }
+    ground = mutate(ground, source = "ground")
+    df = reduce(df, ground)
+  }
+  #Fill remaining time period with water data.
+  water = df %>% select(time, water) %>% rename(., temperature = water) %>% 
+    mutate(source = "water")
+  
+  #Combine and return a mixed dataset.
+  fin = water
+  if(air_ends == T) fin = suppressWarnings(bind_rows(ends, fin))
+  if(ground_sat == T) fin = suppressWarnings(bind_rows(ground, fin))
+  if(air == T) fin = suppressWarnings(bind_rows(fin, airT))
+  fin = arrange(fin, time)
+  
+  cfs = data.frame(latitude, tao,
+                   alpha_max = global$alpha_max, 
+                   k = global$k, b = global$b, 
+                   aw_infl = global$m,
+                   S_Adj_SD = water_s_t[1], ER_Adj_SD = water_s_t[2],
+                   air_AR,water_AR,
+                   air_A, water_A,
+                   air_meanT, water_meanT,
+                   ground_meanT, theta = 0.5)
+  list(dat = fin, coefs = cfs)
+}
+
+multi_site = function(n = 1, years = 1, air_ends = F, air = F, ground_sat = F, randomize = c(T,T,T)){
+  #Create list to be filled.
+  ret = list(dat = NULL, coefs = NULL)
+  #Generate hourly data `n` number of sites.
+  for(i in 1:n){
+    #Gather global model coefficients.
+    global = alpha_est()
+    #Generate hourly data made from three soures, the air, the water and the saturated earth.
+    df = generate(air = air, ground_sat = ground_sat, air_ends = air_ends, 
+                  randomize = randomize, years = years, global = global) 
+    #Add site number and period in annual cycle.
+    df$dat = mutate(df$dat, site = i, d_cycle = c(1:length(time)))
+    df$coefs = mutate(df$coefs, site = i)
+    #Bind data and coefs into list.
+    ret$dat = suppressWarnings(bind_rows(ret$dat, df$dat))
+    ret$coefs = suppressWarnings(bind_rows(ret$coefs, df$coefs))
+  }
+  #Rename lists
+  dat = list("hourly" = ret$dat, "coefs" = ret$coefs)
+
+  #Daily summary
+  ret = ret$dat %>% mutate(time = lubridate::floor_date(time, unit = "day")) %>% 
+    group_by(site, source, time) %>%
+    summarize(temperature = mean(temperature)) %>% 
+    arrange(site, time) %>% ungroup() %>% group_by(site)
+  #Remove duplicate days due to rounding errors.
+  dups = ret %>% group_by(site,time) %>% summarise(c = n()) %>% filter(c>1)
+  del = vector(mode = "numeric",length = length(dups)/2); c=1
+  if(nrow(dups)>0){
+    for (i in 1:nrow(dups)){
+      rows = which(ret$time==dups[i,"time"][[1]] & ret$site == dups[i,"site"][[1]])
+      del[c] = sample(rows,1)
+      c=c+1
+    }
+  dat$daily = ret[-del,]
+  } else dat$daily = ret
+  
+  #Add point in cycle data (`d`).
+  dat$daily = dat$daily %>% group_by(site) %>% mutate(d = c(1:length(time)))
+  #Add tau prior estimate and determine how many points are in an annual cycle.
+  dat$coefs = dat$daily %>% group_by(site) %>% summarise(tau_approx = tau_init(time = time),
+                                                         n_cycle = n_init(time = time)) %>% 
+    left_join(dat$coefs,., by = "site")
+  dat
+}
+
+
+#Determine values to constraine the search space.
+
+#Estimate tao via the data assuming a northern hemisphere cycle.
+tau_init = function(time){
+  library(lubridate)
+  ref = data.frame(date = yday(seq(from = ymd("2000-07-15"), by = "day", length.out = 366)),
+                 tao = seq(from = 0 , to = 2, length.out = 366))
+  ref[ref$date == yday(min(time)),"tao"]
+}
+#Provide the number of observations in a year. Will determine the number of periods.
+n_init = function(time){
+  library(lubridate)
+  dur = as.numeric(names(sort(table(as.duration(time[2:length(time)]-time[1:(length(time)-1)])), decreasing = T)))
+  total = 0; cc = 0
+  while(as.duration(total)/dyears(1) < 1){
+    total = (total + dur)
+    cc=cc+1
+  }
+  cc
+}
+#Build initial conditions for different numbers of chains.
+create_inits = function(K = 3, A_ij = c(.9,.1,.1,.1,.9,.1,.1,.1,.9), p_1k = c(.495,.495,.01),
+                        alpha_max = 27, w_low = 0, k = .15, m = 16,
+                        water_A = 4, air_A, air_alpha, chains = 1, n_sites){
+  #browser()
+  #Create single chain list
+  init = list(p_1k = matrix(data = p_1k, nrow = n_sites, ncol = K, byrow = T),
+              A_iJ = matrix(data = A_ij, nrow = K, ncol = K),
+              #alpha_max = alpha_max-w_low, k = k, w_low = w_low, m = m,
+              A = matrix(data = c(rep(water_A, n_sites),air_A), nrow = n_sites, ncol = 2),
+              #alpha = matrix(data = c(rep(4, n_sites), air_alpha), nrow = n_sites, ncol = 2)
+              alpha_air = air_alpha,
+              alpha_water = if_else(air_alpha>0,air_alpha,2))
+  init$A[,1] = if_else(init$alpha_water<13.5, init$alpha_water, (27-init$alpha_water))
+  #Replicate single list over n chains
+  inits = list()
+  for(i in 1:chains){
+    inits[[i]] = init
+  }
+  #return inits
+  inits
+}
+```
+
+These functions offer plotting capabilities after running a hidden markov model.
+
+```{r Plot Probabilities}
+prob_plot = function(mod, date, temperature, smooth = T, err_perc = NULL){
+  #Build dataframe
+  if(is.null(err_perc)) df = as.tibble(data.frame(date,temperature)) %>% arrange(date)
+  else df = as.tibble(data.frame(date,temperature,source = err_perc)) %>% arrange(date)
+  
+  #Coefficients
+  cf = broom::tidy(mod) %>% select(-std.error) %>% spread(term,estimate)
+  
+  #Extract log-/probability estimates and their upper and lower quartiles
+  if(smooth == T) {
+    xi_est = mod %>%
+    as.data.frame() %>%
+    select(starts_with("gamma")) %>% 
+    reshape2::melt() %>% 
+    group_by(variable) %>%
+    summarise(lower = quantile(value, probs = .25),
+              median = median(value),
+              upper = quantile(value, probs = .75))
+  }
+  else {
+    xi_est = mod %>%
+    as.data.frame() %>%
+    select(starts_with("alpha_tk")) %>% 
+    reshape2::melt() %>% 
+    group_by(variable) %>%
+    summarise(lower = quantile(value, probs = .25),
+              median = median(value),
+              upper = quantile(value, probs = .75))
+  }
+  
+  #Extract ordingal "day" of dataset
+  day = as.numeric(unlist(stringr::str_extract_all(string = xi_est$variable, pattern = "\\d+(?=,)")))
+
+  #Extract model type
+  model = unlist(apply(xi_est, 1, function(x){
+    if(grepl(x = x[1],  pattern = "\\w+\\[\\d+,1\\]")) "air"
+    else if(grepl(x = x[1],  pattern = "\\w+\\[\\d+,2\\]")) "water"
+    else if(grepl(x = x[1],  pattern = "\\w+\\[\\d+,3\\]")) "ground"
+  }))
+  
+  #Calculate probability of data given each model
+  xi_est = xi_est %>% mutate(day = day, est_source = model) %>% select(-variable)
+  
+  #Bind probabilities to raw data.
+  df1 = xi_est %>% filter(est_source == "water") %>% arrange(day) %>% bind_cols(df, .)
+  df2 = xi_est %>% group_by(day) %>% filter(median == max(median)) %>% 
+    arrange(day) %>% bind_cols(df,.)
+  
+  #Add Model Fits
+  df2$water_fit = cf$alpha_water + cf$`A[1]`*cos(2*pi*df2$day/nrow(df2) + cf$`tau_est[2]`*pi)
+  df2$water_sd = (cos(2*pi*df2$day/nrow(df2) + cf$`tau_est[2]`*pi)+2) * cf$`sigma[1]`
+  if(!is.null(err_perc)){
+    df2 = df2 %>% mutate(err = if_else(df2$source == df2$est_source, 1,19))
+    percent_error = round((1-sum(df2$source==df2$est_source)/nrow(df))*100)
+  }
+  
+  #Build Plots
+  
+  #Probability plot
+  p1p = ggplot(df1) + 
+    geom_line(aes(date, median), size = .3, linetype = 2) +
+    geom_ribbon(aes(date, ymin = lower, ymax = upper), alpha =.3, fill = "royalblue") +
+    ggthemes::theme_tufte() +
+    labs(x = "", y = "Probability")
+  
+  #Raw/Probability
+  x_pos = max(which(month(df1$date)==2)/nrow(df1))
+  p1 = ggplot(df1) + 
+    geom_line(aes(date, temperature)) +
+    geom_point(aes(date, temperature, col = median)) +
+    viridis::scale_color_viridis() +
+    ggthemes::theme_tufte() +
+    theme(legend.position = c(x_pos, .85), legend.direction = "horizontal") +
+    labs(color ="Probability Water", x = "", y = "Temperature") +
+    guides(colour = guide_colourbar(title.position="top"))
+  
+  #Best Fit
+  p1f = ggplot(df2, aes(date,temperature))
+  
+  if(is.null(err_perc)){
+    p1f = p1f + 
+      geom_point(aes(date, temperature, color = est_source), shape = 19) +
+      labs(color = "", x = "Date", y = "Temperature")
+  } 
+  if(!is.null(err_perc)){
+    p1f = p1f +
+      geom_point(data = filter(df2, err == 19), aes(date, temperature, color = est_source), shape = 19) +
+      geom_point(data = filter(df2, err == 1), aes(date, temperature, color = est_source), shape = 1) +
+      labs(color = paste(as.character(percent_error),"% error",sep=""), x = "Date", y = "Temperature")
+  }
+  
+  p1f = p1f + geom_line(aes(date, water_fit)) +
+    geom_ribbon(aes(date, ymin = water_fit - 1.97*water_sd, ymax = water_fit + 1.97*water_sd), 
+                alpha = .3, fill = "royalblue") +
+    ggthemes::theme_tufte() +
+    theme(legend.position = c(x_pos, .85), legend.direction = "horizontal") + 
+    guides(color = guide_legend(title.position = "top",title.hjust = .5))
+  
+    
+  
+  gridExtra::grid.arrange(p1p, p1, p1f, layout_matrix = matrix(data = c(1,2,3), nrow = 3, ncol = 1))
+}
+
+```
+
+We are using a seasonal cycle model...
+   `y[t] = alpha + A*cos(Y*2*pi*w + tau*pi) + sigma_t`, 
+      `sigma_t ~ (cos(2*pi*w*t + tau)+2)*sigma`,
+where `alpha` represents the vertical adjustment (i.e, mean) of the cosine curve and `A` refers to its expansion (i.e., amplitude). `Y` controls the number of cycles (i.e, years) the data contain and `w` is the frequency of the cycle and equals `t`/`N` where `t` is the current time point and `N` is the total number of time points in one cycle or in this case one year. `tau` controls where in the seasonal temperature cycle we begin "**recording**" data. The errors are seasonally adjusted so they grow larger with warmer temperatures. We created this model similar to that on page 67 of **Time Series Analysis and Its Applications** by Robert H. Shumway and David S. Stoffer.
+
+Now we'll recapture `alpha`, `A`, `tau`, `rho` and `sigma`.
+
+```{r Recapture Simulated Air & Water}
+#create data
+df = multi_site(n = 1, years = 1, air_ends = F, air = F, ground_sat = F, randomize = c(F,F,F))
+
+#Compile and run model.
+compile = stan_model("./stan/AW_sim.stan")
+mod = sampling(compile, data = list(N = length(df$daily$temperature), y = df$daily$temperature),
+                warmup = 300, iter = 800, chains = 4)
+
+#Coefficients
+cf = broom::tidy(mod, pars = c("alpha","A","tau","sigma"), "mean") %>%
+  select(-std.error) %>% spread(term,estimate)
+df$daily = df$daily %>% mutate(y_hat = cf$alpha + cf$A*cos(2*pi*d/365 + cf$tau*pi),
+                    sd = 1.96*(cos(2*pi*d/365 + cf$tau*pi)+2)*cf$sigma)
+
+# Plot temperature by site.
+ggplot() +
+  geom_ribbon(data = df$daily, aes(time, ymin = y_hat - sd, ymax = y_hat + sd), fill = "red", alpha = 0.1) +
+  geom_point(data = df$daily, aes(time, temperature), color = "red", size = .8) + 
+  geom_line(data = df$daily, aes(time, temperature), size = .2) + 
+  geom_line(data = df$daily, aes(time, y_hat), color = "blue") + 
+  geom_hline(yintercept = 0) +
+  facet_wrap(~site) + ggthemes::theme_tufte()
+```
+
+In the water and air temperature case we can easily recapture the coefficients. Now we'll apply this model to some known water and air temperature data to see if they fit the data well.
+
+```{r Real Temperature Fit}
+#Real data.
+dat = read_rds(path = "./Data/test_labeled.rds")
+air = dat %>% filter(source == "air", !is.na(temperature)) %>% arrange(date)
+water = dat %>% filter(source == "water", !is.na(temperature)) %>% arrange(date)
+
+#air mod
+mod = sampling(compile, data= list(N = length(air$temperature), y = air$temperature),
+                        warmup = 300, iter = 800, chains = 4)
+
+#Coefficients
+cf = broom::tidy(mod, pars = c("alpha","A","tau","sigma"), "mean") %>%
+  select(-std.error) %>% spread(term,estimate)
+
+#collect results
+air = air %>% mutate(d = c(1:length(temperature)),
+                    y_hat = cf$alpha + cf$A*cos(2*pi*d/length(temperature)+ cf$tau*pi),
+                    sd = 1.96*(cos(2*pi*d/length(temperature) + cf$tau*pi)+2)*cf$sigma)
+
+#water mod
+mod = sampling(compile, data= list(N = length(water$temperature), y = water$temperature),
+               warmup = 300, iter = 800, chains = 4)
+               
+#Coefficients
+cf = broom::tidy(mod, pars = c("alpha","A","tau","sigma"), "mean") %>%
+  select(-std.error) %>% spread(term,estimate)
+
+#collect results
+water = water %>% mutate(d = c(1:length(temperature)),
+                    y_hat = cf$alpha + cf$A*cos(2*pi*d/length(temperature) + cf$tau*pi),
+                    sd = 1.96*(cos(2*pi*d/length(temperature)+ cf$tau*pi)+2)*cf$sigma)                       
+
+#plot results
+ggplot() +
+  geom_ribbon(data = air, aes(date, ymin = y_hat - sd, ymax = y_hat + sd), fill = "red", alpha = 0.1) +
+  geom_point(data = air, aes(date, temperature), color = "red", size = .8) + 
+  geom_ribbon(data = water, aes(date, ymin = y_hat - sd, ymax = y_hat + sd), fill = "blue", alpha = 0.4) +
+  geom_point(data = water, aes(date, temperature), color = "blue", size = .8) + 
+  geom_line(data = air, aes(date, y_hat), color = "black") + 
+  geom_line(data = water, aes(date, y_hat), color = "black") + 
+  geom_hline(yintercept = 0) +
+  ggthemes::theme_tufte()
+```
+
+The models fit the real water and air temperature well and capture the major differences between the two temperature sources. This is encouraging that the models, though the same, may have such different parameter values they will be seperable in the HMM.
+
+Now I'll build a saturated earth (i.e., buried logger) model, simulate the data and recapture those values.
+
+```{r Recapture Simulated Ground Temperature}
+#create data
+g_dat = ground()
+
+#Compile and run model.
+compile = stan_model("./stan/Const_sim.stan")
+mod = sampling(compile, data= list(N = length(g_dat), y = g_dat),
+                warmup = 300, iter = 800, chains = 4)
+
+#Coefficients
+cf = broom::tidy(mod, pars = c("t0","theta","sigma"), "mean") %>%
+  select(-std.error) %>% spread(term,estimate)
+
+#collect results
+y_hat = vector(mode = "numeric", length = length(g_dat))
+sapply(X = c(1:length(g_dat)), FUN = function(x){
+  if(x == 1){
+    y_hat[x] <<- cf$t0 + rnorm(1,0,cf$sigma)
+  } 
+  else {
+    y_hat[x] <<- cf$t0 + cf$theta*(y_hat[x-1]-cf$t0) + rnorm(1,0,cf$sigma)
+  }
+})
+g_data = data.frame(ground = g_dat, ground_hat = y_hat, time = c(1:length(g_dat)))
+
+#plot results
+ggplot() + 
+  geom_point(data = g_data, aes(time, g_dat))+
+  geom_point(data = g_data, aes(time, y_hat), color = "purple", alpha = 0.2)
+```
+
+Although real water-saturated ground-temperature-influenced data would be highly correlated and described by lognormal errors, I've decided to simply capture it's essence and use just a y-intercept model with normal errors and no AR or MA component. By avoiding lognormal errors, we'll be able to incorporate this model into our HMM without worry of INF values when temperature data go negative. By not using an MA or AR component we loose some accuracy and realism but are more likely to have improved fit times as the values that describe these terms can vary wildly and capture a lot of variation that may be attributed to other data sources.
+
+Now we need to combine the air, water and ground temperature data and build a Hidden Markov Model that pulls them apart. In considering an eventual multi-site heirarchical model, we need a global model that describes how air and water temperature are loosely related to help the model find a fit and limit the data to physically reasonable boundaries. Here I propose a model where water temperature follows air temperature, often laging below air temperature but asymptoting at 0 and ~27ºC. This model is the same as a logistic curve where the parameters are related to temperature.
+
+```{r Global Model}
+#Gather/generate multi-site data.
+df = multi_site(n = 100, years = 1, air_ends = F, air = F, ground_sat = F, randomize = c(F,F,F))
+
+#Compile and run model.
+compile = stan_model("./stan/global.stan")
+mod = sampling(compile, data= list(S = length(unique(df$daily$site)),
+                                           air_mean = df$coefs$air_meanT),
+                       iter = 500, chains = 4)
+
+#Check model fit.
+shinystan::launch_shinystan(mod)
+
+#Functions to scale values between 0 and 1 for logit transformation
+range01 <- function(x){(x-(min(x)-0.001))/(max(x)-min(x)+0.002)}
+inv.range01 = function(x,y){(x*(max(y)-min(y)+0.002) + (min(y)-0.001))}
+
+#Compare mean and median estimates with mean(logit) transformed estimates.
+data.frame(rstan::extract(mod, pars = c("alpha_water"))) %>%
+  gather(data = ., key = "term", value = "alpha_water") %>% 
+  group_by(term) %>% 
+  summarize(mean = mean(alpha_water),
+            median = median(alpha_water),
+            alpha = inv.range01(boot::inv.logit(mean(psych::logit(range01(alpha_water)))),alpha_water))
+
+#Diagnostic Global Model
+#Estimate
+broom::tidy(mod,pars = c("alpha_max", "m", "k","w_low")) %>% select(-std.error) %>% 
+  spread(data = ., key = term, value = estimate); cf
+#Actual
+df$coefs %>% select(alpha_max,k,aw_infl,b) %>% colMeans(.)
+
+cf = broom::tidy(mod, "alpha_water") %>% select(-std.error) %>% 
+  mutate(site = as.numeric(stringr::str_extract_all(string = term, patter = "\\d+", simplify = T))) %>%
+  select(-term)
+
+#Plot Global Model (red = air, blue = water, black = actual)
+df$coefs %>% select(latitude, air_meanT, water_meanT, site) %>% left_join(cf,.) %>% 
+  ggplot(data = ., aes(latitude, estimate)) + geom_smooth(se = F) + geom_point(color = "blue", alpha = .5) + 
+  geom_point(aes(latitude, water_meanT), color = "black") +
+  geom_smooth(aes(latitude, air_meanT), color = "red", se = F)
+```
+
+This gobal model fits very quickly and seems very reasonable, however it is unclear whether this will fit well to real data. It is important to remember that air estimates will be coming from models that already account for latitude, elevation and distance to large water water bodies. Therefore, we can assume these variables are accounted for when estimating water temperature from air temperature. I'm struggling with allowing for more variation/uncertainty in the model. I would prefer site specific data to drive the relationship when available but also have the influence of the global model to keep estimates reasonable especially when data is limited.
+
+Now we can build the HMM for a single site with three temperature sources where water and air temperature data have a described relationship. Thinking about the physical relationships between data sources, I've concluded that mean water and ground temperature are likely the same. I've thus allowed these variables to be shared between the two models. This should spead up fit times. I've also realized that sigma for water and air do not capture similar information as sigma in the ground model, so I've broken them apart and no longer order ground beneath water and air.
+
+```{r Recapture Simulated Multi-Sources w/HMM}
+df = multi_site(n = 1, years = 1, air_ends = T, air = T, ground_sat = T, randomize = c(F,F,F))
+inits = create_inits(water_A = 4, air_A = df$coefs$air_A, air_alpha = df$coefs$air_meanT, chains = 4, n_sites = length(unique(df$daily$site)))
+
+#Compile and run model.
+compile = stan_model("./stan/HMM.stan")
+mod = sampling(compile, data= list(N = length(df$daily$temperature), K = 3, 
+                                           y = df$daily$temperature,
+                                           tau = tau_init(time = df$daily$time), 
+                                           n = n_init(time = df$daily$time),
+                                           air_A = df$coef$air_A,
+                                           air_mean = df$coef$air_meanT),
+               warmup = 500, iter = 1000, chains = 4)
+
+#Plot
+prob_plot(mod, df$daily$time, df$daily$temperature, smooth = F, err_perc = df$daily$source)
+```
+
+I'm again realizing that auto-regressive and moving average terms are not condusive to HMMs in this context. The parameter controling the influence of the previous data point(s) is too general making it really easy for chains to find local optimums. In other words, these parameters are to flexible and don't constrain the models enough, resulting in a lot of overlap.
+
+After giving the HMM some guidance using fairly general initial parameters, we get very good accordance with the known data types (99%).
+
+Now I would like to apply this model to my real data and just see if it can capture the same relationships when the data may or may not follow a cosine curve perfectly and have such clearly distinguished variance parameters.
+
+```{r HMM on Real Data}
+test = read_rds(path = "./Data/test.rds") %>% 
+  mutate(date = lubridate::round_date(DateTime, "day")) %>% 
+  arrange(date) %>% group_by(date) %>% 
+  summarise(temperature = mean(Temperature)) %>% 
+  mutate(day = c(1:length(date)))
+
+inits = list(list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_air = 10, alpha_water = 5),
+             list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_air = 10, alpha_water = 5),
+             list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_air = 10, alpha_water = 5),
+             list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_air = 10, alpha_water = 5))
+#Compile Model
+compile = stan_model("./stan/HMM.stan")
+#Run model.
+mod = sampling(compile, data= list(N = nrow(test), K = 3, 
+                                           y = test$temperature,
+                                           tau = tau_init(time = test$date), 
+                                           n = n_init(time = test$date),
+                                           air_A = 22.9,
+                                           air_mean = 5.2),
+               init = inits, warmup = 500, iter = 1000, chains = 4)
+
+#Plot
+prob_plot(mod, test$date, test$temperature, smooth = F)
+```
+
+In the real data, if we don't provide air mean and amplitude estimates the model appears to split the water temperature data in two. Thereby sharing the same results with only marginal differences. I suspect this could be problem when a site has no air temperature data to fit. By estimating the amplitutde and mean annual air temperature at a site via the BC Climate module and lat./long. information, we can guarentee one model to be air temperature and the other water. After fitting the model where the vertical adjustement and amplitude of the air temperature model are clearly defined we get the temperature models fitting the data correctly and even capture the single air temperature values at the beginning and end of the dataset. 
+
+It's notable that the suspected ground data pulls the water temperature model down artificially and somewhat miss-labels the tail ground temperature data and some of the data transitioning to ground from water. This problem may be resolved by sharing data across sites in a hierarchical framework or in combination.
+
+The below model includes a smoother which increases certainty of estimates with a lot of similar data nearby but this also leads to mislabeleing among more sparse data.
+
+```{r Smoothed HMM}
+#Compile Model
+compile = stan_model("./stan/HMM_smooth.stan")
+#Run model.
+mod = sampling(compile, data= list(N = nrow(test), K = 3, 
+                                           y = test$temperature,
+                                           tau = tau_init(time = test$date), 
+                                           n = n_init(time = test$date),
+                                           air_A = 22.9,
+                                           air_mean = 5.2),
+               init = inits, warmup = 500, iter = 1000, chains = 4)
+
+#Plot
+prob_plot(mod, test$date, test$temperature, smooth = T)
+```
+
+Now I will begin playing with hierarchical based models where the data are partially pooled across sites but drawn from a distribution describing the parameter variability among sites.
+
+```{r Random Effect Water Model}
+df = multi_site(n = 20, years = 1, air_ends = F, air = F, ground_sat = F, randomize = c(F,F,F))
+#Compile and run model.
+compile = stan_model("./stan/water_rand.stan")
+mod = sampling(compile, data= list(N = length(df$daily$temperature),
+                                           S = length(unique(df$daily$site)),
+                                           site = df$daily$site,
+                                           y = df$daily$temperature,
+                                           d = df$daily$d,
+                                           tau = df$coefs$tau_approx, n = df$coefs$n_cycle,
+                                           air_mean = df$coefs$air_meanT,
+                                           prior_only = 0, # Note this option
+                                           pars = c("A", "alpha", "tau_est", "sigma")),
+                       iter = 300, chains = 4)
+
+#Coefficients
+global = broom::tidy(mod, pars = c("alpha_max","k","m","w_low"), "median") %>%
+  select(-std.error) %>% 
+  spread(data = ., key = term, value = estimate)
+
+cf = broom::tidy(mod, pars = c("alpha_water","A","tau_est","sigma"), "median") %>%
+  select(-std.error) %>% 
+  mutate(site = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+",simplify = T)),
+         coef = stringr::str_extract_all(term, "\\w+", simplify = T)[,1]) %>%
+  select(-term) %>% spread(data = ., key = coef, value = estimate)
+
+#Mean water temperature fit.
+temp = df$daily %>% left_join(.,cf, by = "site") %>% mutate(
+  mean = alpha_water+A*cos(2*pi*d/365+tau_est*pi))
+
+#Variance around mean water temperature.
+temp = temp %>% mutate(
+  upper = mean + 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
+  lower = mean - 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma)
+
+#Plot data, mean estimate and error.
+ggplot() +
+  geom_ribbon(data = temp, aes(x = time, ymin = lower, ymax = upper), fill = "red", alpha = 0.3) +
+  geom_point(data = temp, aes(time, temperature),alpha = .5, size = .5, color = "black") + 
+  geom_point(data = temp, aes(time, mean), color = "blue", size = .5, alpha = .5) +
+  geom_hline(yintercept = 0) +
+  facet_wrap(~site) + ggthemes::theme_tufte()
+```
+
+Above we use our global model to describe the relationship between mean air temperature (known) and mean water temperature (unknown). This relationship assumes lotic environments never experience mean annual temperatures below. It also assumes that as mean air temperatures rise, mean water temperature lags behind initially until some inflection point where they become essentially the same over the middle range of air temperatures (i.e., ~20ºN to 45ºN). At really hot mean annual air temperatures (27ºC near the equator), water means again lag behind due to ground temperature dampening. By creating this relationship we can leverage known mean air temperatures across sites and draw the mean annual water temperaure towards a global mean thereby resisting local water temperature models over-fitting erroneous data (i.e., air or ground). This relationship also ensures that as we add additional sites, the predictive ability of the model gets stronger but is a bit more prone to error for sites nearing extreme values which include unusually warm and cold sites relative to the mean air temperature. Ultimately, approximating the mean annual air temperature and it's relationship with mean annual water temperature will enhance the ability for the model to discern between air, water and other erroneous data.
+
+In the model above we demonstrate that we can generate simulated data and retrieve those values across multiple sites. We can also demonstrate that fits improve with the number of sites included. This is true even if we limit our sites latitudes between 40 and 60ºN which means that while the global model is not exploring the entire range of data we can still approximate these values pretty well.
+
+Next we need to incorporate the hierarchical model into the HMM model and retrieve simulated data.
+
+```{r Hierarchical HMM}
+#Create data for multiple sites.
+df = multi_site(n = 20, years = 1, air_ends = T, air = T, ground_sat = F, randomize = c(F,F,F))
+
+#Gather initial values.
+inits = create_inits(air_A = df$coefs$air_A, air_alpha = df$coefs$air_meanT, n_sites = length(unique(df$daily$site)), chains = 1)
+
+#Compile and run model.
+compile = stan_model("./stan/HMM_rand_AH.stan")
+mod = sampling(compile, data= list(N = length(df$daily$temperature),
+                                 S = length(unique(df$daily$site)),
+                                 site = df$daily$site,
+                                 K = 3,
+                                 y = round(df$daily$temperature,2),
+                                 d = df$daily$d,
+                                 tau = df$coefs$tau_approx, n = df$coefs$n_cycle,
+                                 air_A = df$coefs$air_A,
+                                 air_mean = df$coefs$air_meanT,
+                                 water_A = inits[[1]]$A[,1],
+                                 water_mean = inits[[1]]$alpha_water,
+                                 prior = 1),
+               init = inits, iter = 30, chains = 1)
+
+shinystan::launch_shinystan(mod)
+
+#Coefficients
+global = broom::tidy(mod, pars = c("alpha_max","m","k","w_low"), "median") %>%
+  select(-std.error) %>% 
+  spread(data = ., key = term, value = estimate)
+
+broom::tidy(mod, pars = c("A"), "median") %>%
+  select(-std.error) %>% pull(estimate)
+
+cf = broom::tidy(mod, pars = c("alpha","A","tau_est","sigma","sigma_g"), "median") %>%
+  select(-std.error) %>% 
+  mutate(
+    site = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+",simplify = T)[,1]),
+    model = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+",simplify = T)[,2]),
+    coef = stringr::str_extract_all(term, "\\w+", simplify = T)[,1]
+  ) %>% 
+  select(-term) 
+
+for(i in 1:nrow(cf)){
+  if(cf[i,"coef"]!="tau_est" & !is.na(cf[i,"model"])){
+    if(cf[i,"model"]==1) cf[i,"model"] = 2
+    else cf[i,"model"] = 1
+  }
+  if(cf[i,"coef"] == "alpha_air") {
+    cf[i,"coef"] = "alpha"
+    cf[i,"model"] = 1
+  }
+  if(cf[i,"coef"] == "alpha_water") {
+    cf[i,"coef"] = "alpha"
+    cf[i,"model"] = 2
+  }
+  if(cf[i,"coef"] == "sigma_g") {
+    cf[i,"model"] = 2
+  }
+}
+
+cf = spread(data = cf, key = coef, value = estimate)
+
+plot(df$coefs$water_meanT,cf[cf$model == 2,"alpha"], xlim = c(0,10), ylim = c(0,15))
+abline(1,1)
+
+#Mean water and ground temperature fit.
+temp = cf %>% filter(model == 2) %>% left_join(df$daily, ., by = "site") %>% 
+  mutate(mean_w = alpha + A*cos(2*pi*d/365+tau_est*pi),
+         mean_g = alpha)
+
+#Variance around mean water and ground temperature.
+temp = temp %>% mutate(
+  upper_w = mean_w + 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
+  lower_w = mean_w - 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
+  upper_g = mean_g + 1.96*sigma_g,
+  lower_g = mean_g + 1.96*sigma_g) %>% select(-c(6:11))
+
+#Mean air temperature fit.
+temp = cf %>% filter(model == 1) %>% left_join(temp, ., by = "site") %>% 
+  mutate(mean_a = alpha + A*cos(2*pi*d/365+tau_est*pi))
+
+#Variance around mean air temperature.
+temp = temp %>% mutate(
+  upper_a = mean_a + 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
+  lower_a = mean_a - 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma) %>% 
+  select(-c(12:17))
+
+
+#Plot data, mean estimate and error.
+ggplot() +
+  geom_ribbon(data = temp, aes(x = time, ymin = lower_g, ymax = upper_g), fill = "green", alpha = 0.3) +
+  geom_ribbon(data = temp, aes(x = time, ymin = lower_a, ymax = upper_a), fill = "red", alpha = 0.3) +
+  geom_ribbon(data = temp, aes(x = time, ymin = lower_w, ymax = upper_w), fill = "blue", alpha = 0.3) +
+  geom_point(data = filter(temp, source == "air"), aes(time, temperature), color = "red", size = .5) +
+  geom_point(data = filter(temp, source == "ground"), aes(time, temperature), color = "green", size = .5) +
+  geom_point(data = filter(temp, source == "water"), aes(time, temperature), color = "blue", size = .5) +
+  geom_line(data = temp, aes(time, mean_g), color = "green", size = .5, alpha = .5) +
+  geom_line(data = temp, aes(time, mean_a), color = "red", size = .5, alpha = .5) +
+  geom_line(data = temp, aes(time, mean_w), color = "blue", size = .5, alpha = .5) +
+  geom_hline(yintercept = 0) +
+  facet_wrap(~site) + ggthemes::theme_tufte()
+```
+
+t: 2191 log gamma: [0,0,0] beta: [0,1,4.26337e-30] alpha_tk: [1,0,0] logbeta: [-26002.6,-16174.2,-16241.8]
+t: 2191 log gamma: [0,0,0] beta: [0,1,4.26337e-30] alpha_tk: [1,0,0] logbeta: [-26002.6,-16174.2,-16241.8]
+t: 2191 log gamma: [0,0,0] beta: [0,1,4.26337e-30] alpha_tk: [1,0,0] logbeta: [-26002.6,-16174.2,-16241.8]
+An amplitdue global model would be related to mean annual temperature in some way. Mean annual temperature would have a lower bound (0ºC) and an upper bound (~27ºC). Amplitude would probably increase linearly untill some inflection point midway between the bounds. Thus the amplitude would equal the distance between the mean annual temperature and the lower bound until the mean annual temperature increases to the point where the distance between the mean annual temperature and upper bound is less than the distance between the mean annual temperature and the lower bound.
+
+            |2*(alpha_water-w_low)    : alpha_water-w_low < alpha_max-alpha_water
+amplitude = |
+            |2*(alpha_max-alpha_water): alpha_water-w_low > alpha_max-alpha_water
