@@ -287,7 +287,7 @@ prob_plot = function(mod, date, temperature, smooth = T, err_perc = NULL){
               upper = quantile(value, probs = .75))
   }
   
-  #Extract ordingal "day" of dataset
+  #Extract original "day" of dataset
   day = as.numeric(unlist(stringr::str_extract_all(string = xi_est$variable, pattern = "\\d+(?=,)")))
 
   #Extract model type
@@ -354,8 +354,6 @@ prob_plot = function(mod, date, temperature, smooth = T, err_perc = NULL){
     ggthemes::theme_tufte() +
     theme(legend.position = c(x_pos, .85), legend.direction = "horizontal") + 
     guides(color = guide_legend(title.position = "top",title.hjust = .5))
-  
-    
   
   gridExtra::grid.arrange(p1p, p1, p1f, layout_matrix = matrix(data = c(1,2,3), nrow = 3, ncol = 1))
 }
@@ -655,7 +653,7 @@ Next we need to incorporate the hierarchical model into the HMM model and retrie
 df = multi_site(n = 20, years = 1, air_ends = T, air = T, ground_sat = F, randomize = c(F,F,F))
 
 #Gather initial values.
-inits = create_inits(air_A = df$coefs$air_A, air_alpha = df$coefs$air_meanT, n_sites = length(unique(df$daily$site)), chains = 1)
+inits = create_inits(air_A = df$coefs$air_A, air_alpha = df$coefs$air_meanT, n_sites = length(unique(df$daily$site)), chains = 4)
 
 #Compile and run model.
 compile = stan_model("./stan/HMM_rand_AH.stan")
@@ -671,19 +669,12 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
                                  water_A = inits[[1]]$A[,1],
                                  water_mean = inits[[1]]$alpha_water,
                                  prior = 1),
-               init = inits, iter = 30, chains = 1)
+               init = inits, iter = 100, chains = 4)
 
 shinystan::launch_shinystan(mod)
 
 #Coefficients
-global = broom::tidy(mod, pars = c("alpha_max","m","k","w_low"), "median") %>%
-  select(-std.error) %>% 
-  spread(data = ., key = term, value = estimate)
-
-broom::tidy(mod, pars = c("A"), "median") %>%
-  select(-std.error) %>% pull(estimate)
-
-cf = broom::tidy(mod, pars = c("alpha","A","tau_est","sigma","sigma_g"), "median") %>%
+cf1 = broom::tidy(mod, pars = c("A","tau_est","sigma"), "mean") %>%
   select(-std.error) %>% 
   mutate(
     site = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+",simplify = T)[,1]),
@@ -692,65 +683,113 @@ cf = broom::tidy(mod, pars = c("alpha","A","tau_est","sigma","sigma_g"), "median
   ) %>% 
   select(-term) 
 
-for(i in 1:nrow(cf)){
-  if(cf[i,"coef"]!="tau_est" & !is.na(cf[i,"model"])){
-    if(cf[i,"model"]==1) cf[i,"model"] = 2
-    else cf[i,"model"] = 1
-  }
-  if(cf[i,"coef"] == "alpha_air") {
-    cf[i,"coef"] = "alpha"
-    cf[i,"model"] = 1
-  }
-  if(cf[i,"coef"] == "alpha_water") {
-    cf[i,"coef"] = "alpha"
-    cf[i,"model"] = 2
-  }
-  if(cf[i,"coef"] == "sigma_g") {
-    cf[i,"model"] = 2
-  }
-}
+cf2 = broom::tidy(mod, pars = c("alpha_w","alpha_a","t0","sigma_g"), "mean") %>%
+  select(-std.error) %>% 
+  mutate(site = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+(?=\\])",simplify = T)),
+         model = c(rep(1,20),rep(2,20),rep(3,40)),
+         coef = stringr::str_extract_all(term, "\\w+", simplify = T)[,1]) %>% 
+  select(-term)
 
-cf = spread(data = cf, key = coef, value = estimate)
+cf2[cf2$coef=="alpha_w" | cf2$coef=="alpha_a","coef"] = "alpha"
 
-plot(df$coefs$water_meanT,cf[cf$model == 2,"alpha"], xlim = c(0,10), ylim = c(0,15))
-abline(1,1)
+cf = bind_rows(cf1,cf2) %>% spread(key = coef, value = estimate)
 
-#Mean water and ground temperature fit.
-temp = cf %>% filter(model == 2) %>% left_join(df$daily, ., by = "site") %>% 
-  mutate(mean_w = alpha + A*cos(2*pi*d/365+tau_est*pi),
-         mean_g = alpha)
+#Mean water temperature real vs. estimate
+plot(df$coefs$water_meanT, cf[cf$model == 1,"alpha"], xlim = c(0,10), ylim = c(0,10))
+text(df$coefs$water_meanT, cf[cf$model == 1,"alpha"], labels = cf[cf$model == 1,"site"], pos = 1)
+abline(0,1)
+points(df$coefs$water_meanT, inits[[1]]$alpha_water, col = "red")
+#Water temperature amplitude real vs. estimate
+plot(df$coefs$water_A, cf[cf$model == 1,"A"], xlim = c(0,10), ylim = c(0,10))
+text(df$coefs$water_A, cf[cf$model == 1,"A"], labels = cf[cf$model == 1,"site"], pos = 1)
+abline(0,1)
+points(df$coefs$water_A, inits[[1]]$A[,1], col = "red")
+
+#Mean water temperature fit.
+temp = cf %>% filter(model == 1) %>% left_join(df$daily, ., by = "site") %>% 
+  mutate(mean_w = alpha + A*cos(2*pi*d/365+tau_est*pi)) %>% select(-c(6:8,10:11))
+#Mean ground temperature fit.
+temp = cf %>% filter(model == 3) %>% select(site,sigma_g,t0) %>% left_join(temp, ., by = "site") %>% 
+  mutate(mean_g = t0) %>% select(-10)
 
 #Variance around mean water and ground temperature.
 temp = temp %>% mutate(
   upper_w = mean_w + 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
   lower_w = mean_w - 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
   upper_g = mean_g + 1.96*sigma_g,
-  lower_g = mean_g + 1.96*sigma_g) %>% select(-c(6:11))
+  lower_g = mean_g + 1.96*sigma_g) %>% select(-c(6,7,9))
 
 #Mean air temperature fit.
-temp = cf %>% filter(model == 1) %>% left_join(temp, ., by = "site") %>% 
+temp = cf %>% filter(model == 2) %>% left_join(temp, ., by = "site") %>% 
   mutate(mean_a = alpha + A*cos(2*pi*d/365+tau_est*pi))
 
 #Variance around mean air temperature.
 temp = temp %>% mutate(
   upper_a = mean_a + 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
   lower_a = mean_a - 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma) %>% 
-  select(-c(12:17))
+  select(-c(12:18))
 
+xi_est = mod %>%
+as.data.frame() %>%
+select(starts_with("gamma")) %>% 
+reshape2::melt() %>% 
+group_by(variable) %>%
+summarise(lower = quantile(value, probs = .25),
+          median = median(value),
+          upper = quantile(value, probs = .75))
+
+#Extract original "day" of dataset
+day = as.numeric(unlist(stringr::str_extract_all(string = xi_est$variable, pattern = "\\d+(?=,)")))
+
+#Extract model type
+model = unlist(apply(xi_est, 1, function(x){
+  if(grepl(x = x[1],  pattern = "\\w+\\[\\d+,1\\]")) "air"
+  else if(grepl(x = x[1],  pattern = "\\w+\\[\\d+,2\\]")) "water"
+  else if(grepl(x = x[1],  pattern = "\\w+\\[\\d+,3\\]")) "ground"
+}))
+
+#Calculate probability of data given each model
+xi_est = xi_est %>% mutate(day = day, est_source = model)
+
+xi_est %>% filter(day %in% which(df$daily$site==18)) %>% select(est_source, day, median) %>% 
+  spread(., key = est_source, value = median) %>% arrange(day) %>% print.data.frame()
+
+df1 = xi_est %>% filter(est_source == "water") %>% arrange(day) %>% bind_cols(temp, .) %>% select(-variable, -day)
+df2 = xi_est %>% group_by(day) %>% filter(median == max(median)) %>% 
+  arrange(day) %>% bind_cols(temp,.) %>% select(-variable, -day)
+df2 = df2 %>% mutate(err = if_else(source == est_source, 1,19))
+percent_error = df2 %>% group_by(site) %>% 
+  summarise(percent_error = round((1-sum(source==est_source)/nrow(df2))*100))
 
 #Plot data, mean estimate and error.
-ggplot() +
-  geom_ribbon(data = temp, aes(x = time, ymin = lower_g, ymax = upper_g), fill = "green", alpha = 0.3) +
-  geom_ribbon(data = temp, aes(x = time, ymin = lower_a, ymax = upper_a), fill = "red", alpha = 0.3) +
-  geom_ribbon(data = temp, aes(x = time, ymin = lower_w, ymax = upper_w), fill = "blue", alpha = 0.3) +
-  geom_point(data = filter(temp, source == "air"), aes(time, temperature), color = "red", size = .5) +
-  geom_point(data = filter(temp, source == "ground"), aes(time, temperature), color = "green", size = .5) +
-  geom_point(data = filter(temp, source == "water"), aes(time, temperature), color = "blue", size = .5) +
-  geom_line(data = temp, aes(time, mean_g), color = "green", size = .5, alpha = .5) +
-  geom_line(data = temp, aes(time, mean_a), color = "red", size = .5, alpha = .5) +
-  geom_line(data = temp, aes(time, mean_w), color = "blue", size = .5, alpha = .5) +
+ggplot(data = df1) +
+  #geom_ribbon(aes(x = time, ymin = lower_g, ymax = upper_g), fill = "green", alpha = 0.3) +
+  geom_ribbon(aes(x = time, ymin = lower_a, ymax = upper_a), fill = "red", alpha = 0.3) +
+  geom_ribbon(aes(x = time, ymin = lower_w, ymax = upper_w), fill = "blue", alpha = 0.3) +
+  geom_point(aes(time, temperature, color = median), size = .5) +
+  #geom_line(aes(time, mean_g), color = "green", size = .5, alpha = .5) +
+  geom_line(aes(time, mean_a), color = "red", size = .5, alpha = .5) +
+  geom_line(aes(time, mean_w), color = "blue", size = .5, alpha = .5) +
   geom_hline(yintercept = 0) +
+  viridis::scale_color_viridis() +
+  ggthemes::theme_tufte() +
+  theme(legend.direction = "horizontal") +
+  labs(color ="Probability Water", x = "Date", y = "Temperature") +
+  guides(colour = guide_colourbar(title.position="top")) +
   facet_wrap(~site) + ggthemes::theme_tufte()
+
+ggplot(data = df2, aes(time,temperature)) +
+  geom_point(data = filter(df2, err == 19), aes(time, temperature, color = est_source), shape = 19) +
+  geom_point(data = filter(df2, err == 1), aes(time, temperature, color = est_source), shape = 1) +
+  geom_line(aes(time, mean_w)) +
+  geom_ribbon(aes(time, ymin = lower_w, ymax = upper_w), 
+                alpha = .3, fill = "royalblue") +
+  geom_hline(yintercept = 0) +
+  labs(color = paste(as.character(percent_error),"% error",sep=""), x = "Date", y = "Temperature") +
+  ggthemes::theme_tufte() + 
+  theme(legend.direction = "horizontal", legend.position = "top") + 
+  guides(color = guide_legend(title.position = "top")) +
+  facet_wrap(~site)
 ```
 
 t: 2191 log gamma: [0,0,0] beta: [0,1,4.26337e-30] alpha_tk: [1,0,0] logbeta: [-26002.6,-16174.2,-16241.8]

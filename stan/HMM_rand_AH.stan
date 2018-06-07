@@ -28,20 +28,21 @@ parameters {
 
   //Global
   real b;                 // Mean Water Temperature Intercept
-  real m;                 // Mean Water Temperature Slope
+  real<lower=0> m;                 // Mean Water Temperature Slope
   real<lower=0> sigma_j;  // Mean Water Temperature Variance
-  real<lower=0> mu_A;     // Mean Water Amplitude
+  real b_A;
+  real<lower=0> m_A;     // Mean Water Amplitude
   real<lower=0> sigma_A;  // Water Amplitude Variance
 
   // Seasonal Temperature Model for Air and Water
   vector[S] alpha_a;
-  vector<lower=0>[S] alpha_w;
+  positive_ordered[2] alpha_w[S];
   positive_ordered[2] A[S];
   vector<lower = 0, upper = 1>[2] tau_est[S];
   positive_ordered[2] sigma[S];
 
   // Ground model
-  vector<lower = 0>[S] t0;
+  // vector<lower = 0>[S] t0;
   vector<lower=0>[S] sigma_g;
 }
 
@@ -65,13 +66,13 @@ transformed parameters {
         unalpha_tk[t,1]= log(p_1k[site[t],1])+ normal_lpdf(y[t]| mu[1], season[1]);
 
         //Water
-        mu[2]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
+        mu[2]= alpha_w[site[t],2]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
         season[2]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi()))*sigma[site[t],1];
         unalpha_tk[t,2]= log(p_1k[site[t],2])+ normal_lpdf(y[t]| mu[2], season[2]);
 
         //Ground
         unalpha_tk[t,3] = log(p_1k[site[t],3])+
-          normal_lpdf(y[t]| t0[site[t]], sigma_g[site[t]]);
+          normal_lpdf(y[t]| alpha_w[site[t],1], sigma_g[site[t]]);
       }
       else {
         for (j in 1:K) {    // j = current (t) or transition state column.
@@ -86,7 +87,7 @@ transformed parameters {
               }
               if(j == 2){
                 //Water
-                mu[2]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
+                mu[2]= alpha_w[site[t],2]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
                 season[2]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi()))* sigma[site[t],1];
                 accumulator[i]= unalpha_tk[t-1,i] + log(A_ij[i,j]) +
                                  normal_lpdf(y[t]| mu[2], season[2]);
@@ -94,7 +95,7 @@ transformed parameters {
               if(j == 3){
                 //Ground
                 accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+
-                  normal_lpdf(y[t]| t0[site[t]], sigma_g[site[t]]);
+                  normal_lpdf(y[t]| alpha_w[site[t],1], sigma_g[site[t]]);
               }
           }
           unalpha_tk[t, j] = log_sum_exp(accumulator);
@@ -106,18 +107,20 @@ transformed parameters {
 
 model {
   // Global Priors
-  m ~ normal(0,2);
+  m ~ normal(1,2);
   b ~ normal(0,10);
   sigma_j ~ student_t(3,0,1);
-  sigma_A ~ student_t(3,0,3);
+  m_A ~ normal(1,1);
+  b_A ~ normal(0,2);
+  sigma_A ~ normal(0,1);
 
   // Prior of temperature alpha parameter.
-  alpha_w ~ normal(water_mean, 1);
-  alpha_a ~ normal(air_mean, 1);
+  alpha_w[,2] ~ normal(water_mean, 3);
+  alpha_a ~ normal(air_mean, 3);
 
   // Model of temperature amplitude parameter.
-  A[,1] ~ normal(water_A, 2);
-  A[,2] ~ normal(air_A, 2);
+  A[,1] ~ normal(water_A, 3);
+  A[,2] ~ normal(air_A, 3);
 
   // Model tau
   tau_est[,1] ~ normal(tau,.1);
@@ -128,12 +131,14 @@ model {
   sigma[,2] ~ student_t(3,.75,1);
 
   // Ground Priors
-  t0 ~ normal(alpha_w, 3);
+  //t0 ~ normal(alpha_w, 5);
   sigma_g ~ student_t(3,.75,1);
 
   // Global mean temperature and amplitude models
-  alpha_w ~ lognormal(log(b + m*alpha_a), sigma_j);
-  A[,1] ~ normal(mu_A, sigma_A);
+  alpha_w[,2] ~ lognormal(log(b + m*alpha_a), sigma_j);
+  for(s in 1:S){
+    A[s,1] ~ normal(b_A + m_A*alpha_w[s,2], sigma_A);
+  }
 
   // Return log probabilities for each model.
   if(prior == 1){
@@ -188,14 +193,14 @@ generated quantities {
             }
             if(j == 2){
               //Water
-              mu_gen[2]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
+              mu_gen[2]= alpha_w[site[t],2]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
               season_gen[2]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi()))* sigma[site[t],1];
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+ normal_lpdf(y[t]| mu_gen[2], season_gen[2]);
             }
             if(j == 3){
               //Ground
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                normal_lpdf(y[t]| t0[site[t]], sigma_g[site[t]]);
+                normal_lpdf(y[t]| alpha_w[site[t],1], sigma_g[site[t]]);
             }
           }
           logbeta[t-1,j] = log_sum_exp(accumulator);
