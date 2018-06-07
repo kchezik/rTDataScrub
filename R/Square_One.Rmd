@@ -12,6 +12,8 @@ library(tidyverse); library(rstan)
 options(mc.cores = parallel::detectCores(), auto_write = TRUE)
 ```
 
+##Data Simulation and Parameter Estimation Functions
+
 These functions create simulated data and offer tools to estimate parameters quickly as priors to subsequent models.
 
 ```{r Generative Functions}
@@ -232,15 +234,11 @@ n_init = function(time){
 }
 #Build initial conditions for different numbers of chains.
 create_inits = function(K = 3, A_ij = c(.9,.1,.1,.1,.9,.1,.1,.1,.9), p_1k = c(.495,.495,.01),
-                        alpha_max = 27, w_low = 0, k = .15, m = 16,
-                        water_A = 4, air_A, air_alpha, chains = 1, n_sites){
-  #browser()
+                        air_A, air_alpha, chains = 1, n_sites){
   #Create single chain list
   init = list(p_1k = matrix(data = p_1k, nrow = n_sites, ncol = K, byrow = T),
               A_iJ = matrix(data = A_ij, nrow = K, ncol = K),
-              #alpha_max = alpha_max-w_low, k = k, w_low = w_low, m = m,
-              A = matrix(data = c(rep(water_A, n_sites),air_A), nrow = n_sites, ncol = 2),
-              #alpha = matrix(data = c(rep(4, n_sites), air_alpha), nrow = n_sites, ncol = 2)
+              A = matrix(data = c(rep(4, n_sites),air_A), nrow = n_sites, ncol = 2),
               alpha_air = air_alpha,
               alpha_water = if_else(air_alpha>0,air_alpha,2))
   init$A[,1] = if_else(init$alpha_water<13.5, init$alpha_water, (27-init$alpha_water))
@@ -254,6 +252,8 @@ create_inits = function(K = 3, A_ij = c(.9,.1,.1,.1,.9,.1,.1,.1,.9), p_1k = c(.4
 }
 ```
 
+## Plot Model Results
+
 These functions offer plotting capabilities after running a hidden markov model.
 
 ```{r Plot Probabilities}
@@ -263,7 +263,8 @@ prob_plot = function(mod, date, temperature, smooth = T, err_perc = NULL){
   else df = as.tibble(data.frame(date,temperature,source = err_perc)) %>% arrange(date)
   
   #Coefficients
-  cf = broom::tidy(mod) %>% select(-std.error) %>% spread(term,estimate)
+  cf = broom::tidy(mod, pars = c("alpha_w","alpha_a","A","tau_est","sigma","sigma_g")) %>%
+    select(-std.error) %>% spread(term,estimate)
   
   #Extract log-/probability estimates and their upper and lower quartiles
   if(smooth == T) {
@@ -306,7 +307,7 @@ prob_plot = function(mod, date, temperature, smooth = T, err_perc = NULL){
     arrange(day) %>% bind_cols(df,.)
   
   #Add Model Fits
-  df2$water_fit = cf$alpha_water + cf$`A[1]`*cos(2*pi*df2$day/nrow(df2) + cf$`tau_est[2]`*pi)
+  df2$water_fit = cf$`alpha_w` + cf$`A[1]`*cos(2*pi*df2$day/nrow(df2) + cf$`tau_est[1]`*pi)
   df2$water_sd = (cos(2*pi*df2$day/nrow(df2) + cf$`tau_est[2]`*pi)+2) * cf$`sigma[1]`
   if(!is.null(err_perc)){
     df2 = df2 %>% mutate(err = if_else(df2$source == df2$est_source, 1,19))
@@ -360,10 +361,12 @@ prob_plot = function(mod, date, temperature, smooth = T, err_perc = NULL){
 
 ```
 
+## Seasonal Cycle Temperature Model
+
 We are using a seasonal cycle model...
    `y[t] = alpha + A*cos(Y*2*pi*w + tau*pi) + sigma_t`, 
       `sigma_t ~ (cos(2*pi*w*t + tau)+2)*sigma`,
-where `alpha` represents the vertical adjustment (i.e, mean) of the cosine curve and `A` refers to its expansion (i.e., amplitude). `Y` controls the number of cycles (i.e, years) the data contain and `w` is the frequency of the cycle and equals `t`/`N` where `t` is the current time point and `N` is the total number of time points in one cycle or in this case one year. `tau` controls where in the seasonal temperature cycle we begin "**recording**" data. The errors are seasonally adjusted so they grow larger with warmer temperatures. We created this model similar to that on page 67 of **Time Series Analysis and Its Applications** by Robert H. Shumway and David S. Stoffer.
+where `alpha` represents the vertical adjustment (i.e, mean) of the cosine curve and `A` refers to its expansion (i.e., amplitude). `Y` controls the number of cycles (i.e, years) the data contain and `w` is the frequency of the cycle and equals `t`/`N` where `t` is the current time point and `N` is the total number of time points in one cycle or in this case one year. `tau` controls where in the seasonal temperature cycle we begin observing data. The errors are seasonally adjusted so they grow larger with warmer temperatures. We created this model similar to that on page 67 of **Time Series Analysis and Its Applications** by Robert H. Shumway and David S. Stoffer.
 
 Now we'll recapture `alpha`, `A`, `tau`, `rho` and `sigma`.
 
@@ -438,7 +441,9 @@ ggplot() +
   ggthemes::theme_tufte()
 ```
 
-The models fit the real water and air temperature well and capture the major differences between the two temperature sources. This is encouraging that the models, though the same, may have such different parameter values they will be seperable in the HMM.
+The model fits the real water and air temperature data well and capture the major differences between the two temperature sources. This is encouraging that the models, though the same, may have such different parameter values they will be seperable in the HMM.
+
+## Ground Model
 
 Now I'll build a saturated earth (i.e., buried logger) model, simulate the data and recapture those values.
 
@@ -473,78 +478,35 @@ ggplot() +
   geom_point(data = g_data, aes(time, y_hat), color = "purple", alpha = 0.2)
 ```
 
-Although real water-saturated ground-temperature-influenced data would be highly correlated and described by lognormal errors, I've decided to simply capture it's essence and use just a y-intercept model with normal errors and no AR or MA component. By avoiding lognormal errors, we'll be able to incorporate this model into our HMM without worry of INF values when temperature data go negative. By not using an MA or AR component we loose some accuracy and realism but are more likely to have improved fit times as the values that describe these terms can vary wildly and capture a lot of variation that may be attributed to other data sources.
+Although real water-saturated ground-temperature-influenced data would be highly correlated and described by lognormal errors, I've decided to simply capture it's essence and use just a y-intercept model with normal errors and no AR or MA component. By avoiding lognormal errors, we'll be able to incorporate this model into our HMM without worry of INF values when temperature data go negative. By not using an MA or AR component we loose some accuracy and realism but we are more likely to have improved fit times as the values that describe these terms can vary wildly and capture a lot of variation that may be attributed to other data sources.
 
-Now we need to combine the air, water and ground temperature data and build a Hidden Markov Model that pulls them apart. In considering an eventual multi-site heirarchical model, we need a global model that describes how air and water temperature are loosely related to help the model find a fit and limit the data to physically reasonable boundaries. Here I propose a model where water temperature follows air temperature, often laging below air temperature but asymptoting at 0 and ~27ºC. This model is the same as a logistic curve where the parameters are related to temperature.
+## HMM Model
 
-```{r Global Model}
-#Gather/generate multi-site data.
-df = multi_site(n = 100, years = 1, air_ends = F, air = F, ground_sat = F, randomize = c(F,F,F))
-
-#Compile and run model.
-compile = stan_model("./stan/global.stan")
-mod = sampling(compile, data= list(S = length(unique(df$daily$site)),
-                                           air_mean = df$coefs$air_meanT),
-                       iter = 500, chains = 4)
-
-#Check model fit.
-shinystan::launch_shinystan(mod)
-
-#Functions to scale values between 0 and 1 for logit transformation
-range01 <- function(x){(x-(min(x)-0.001))/(max(x)-min(x)+0.002)}
-inv.range01 = function(x,y){(x*(max(y)-min(y)+0.002) + (min(y)-0.001))}
-
-#Compare mean and median estimates with mean(logit) transformed estimates.
-data.frame(rstan::extract(mod, pars = c("alpha_water"))) %>%
-  gather(data = ., key = "term", value = "alpha_water") %>% 
-  group_by(term) %>% 
-  summarize(mean = mean(alpha_water),
-            median = median(alpha_water),
-            alpha = inv.range01(boot::inv.logit(mean(psych::logit(range01(alpha_water)))),alpha_water))
-
-#Diagnostic Global Model
-#Estimate
-broom::tidy(mod,pars = c("alpha_max", "m", "k","w_low")) %>% select(-std.error) %>% 
-  spread(data = ., key = term, value = estimate); cf
-#Actual
-df$coefs %>% select(alpha_max,k,aw_infl,b) %>% colMeans(.)
-
-cf = broom::tidy(mod, "alpha_water") %>% select(-std.error) %>% 
-  mutate(site = as.numeric(stringr::str_extract_all(string = term, patter = "\\d+", simplify = T))) %>%
-  select(-term)
-
-#Plot Global Model (red = air, blue = water, black = actual)
-df$coefs %>% select(latitude, air_meanT, water_meanT, site) %>% left_join(cf,.) %>% 
-  ggplot(data = ., aes(latitude, estimate)) + geom_smooth(se = F) + geom_point(color = "blue", alpha = .5) + 
-  geom_point(aes(latitude, water_meanT), color = "black") +
-  geom_smooth(aes(latitude, air_meanT), color = "red", se = F)
-```
-
-This gobal model fits very quickly and seems very reasonable, however it is unclear whether this will fit well to real data. It is important to remember that air estimates will be coming from models that already account for latitude, elevation and distance to large water water bodies. Therefore, we can assume these variables are accounted for when estimating water temperature from air temperature. I'm struggling with allowing for more variation/uncertainty in the model. I would prefer site specific data to drive the relationship when available but also have the influence of the global model to keep estimates reasonable especially when data is limited.
-
-Now we can build the HMM for a single site with three temperature sources where water and air temperature data have a described relationship. Thinking about the physical relationships between data sources, I've concluded that mean water and ground temperature are likely the same. I've thus allowed these variables to be shared between the two models. This should spead up fit times. I've also realized that sigma for water and air do not capture similar information as sigma in the ground model, so I've broken them apart and no longer order ground beneath water and air.
+Now we need to combine the air, water and ground temperature data and build a Hidden Markov Model that pulls them apart. Thinking about the physical relationships between data sources, I've concluded that mean water and ground temperature are likely the same. I've thus allowed these variables to be shared between the two models. This should speed up fit times. I've also realized that sigma for water and air do not capture similar information as sigma in the ground model, so I've broken them apart and no longer order ground beneath water and air. This may be a mistake if variances are allowed to vary enough to capture non-ground data when no ground data are present to fit too.
 
 ```{r Recapture Simulated Multi-Sources w/HMM}
 df = multi_site(n = 1, years = 1, air_ends = T, air = T, ground_sat = T, randomize = c(F,F,F))
-inits = create_inits(water_A = 4, air_A = df$coefs$air_A, air_alpha = df$coefs$air_meanT, chains = 4, n_sites = length(unique(df$daily$site)))
+inits = create_inits(air_A = df$coefs$air_A, air_alpha = df$coefs$air_meanT, chains = 4, n_sites = 1)
 
 #Compile and run model.
 compile = stan_model("./stan/HMM.stan")
-mod = sampling(compile, data= list(N = length(df$daily$temperature), K = 3, 
-                                           y = df$daily$temperature,
-                                           tau = tau_init(time = df$daily$time), 
-                                           n = n_init(time = df$daily$time),
-                                           air_A = df$coef$air_A,
-                                           air_mean = df$coef$air_meanT),
+mod = sampling(compile, data= list(N = length(df$daily$temperature), K = 3,
+                                  y = df$daily$temperature,
+                                  tau = tau_init(time = df$daily$time), 
+                                  n = n_init(time = df$daily$time),
+                                  air_A = df$coef$air_A,
+                                  air_mean = df$coef$air_meanT,
+                                  water_A = inits[[1]]$A[1],
+                                  water_mean = inits[[1]]$alpha_water),
                warmup = 500, iter = 1000, chains = 4)
 
 #Plot
 prob_plot(mod, df$daily$time, df$daily$temperature, smooth = F, err_perc = df$daily$source)
 ```
 
-I'm again realizing that auto-regressive and moving average terms are not condusive to HMMs in this context. The parameter controling the influence of the previous data point(s) is too general making it really easy for chains to find local optimums. In other words, these parameters are to flexible and don't constrain the models enough, resulting in a lot of overlap.
+I did not include auto-regressive or moving average terms as they are not condusive to HMMs in this context. The parameter controling the influence of the previous data point(s) is too general making it really easy for chains to find local optimums. In other words, these parameters are too flexible and don't constrain the models enough, resulting in a lot of overlap.
 
-After giving the HMM some guidance using fairly general initial parameters, we get very good accordance with the known data types (99%).
+After giving the HMM some guidance using fairly general initial parameters, we get very good accordance with the known data types (>99%).
 
 Now I would like to apply this model to my real data and just see if it can capture the same relationships when the data may or may not follow a cosine curve perfectly and have such clearly distinguished variance parameters.
 
@@ -555,26 +517,28 @@ test = read_rds(path = "./Data/test.rds") %>%
   summarise(temperature = mean(Temperature)) %>% 
   mutate(day = c(1:length(date)))
 
-inits = list(list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_air = 10, alpha_water = 5),
-             list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_air = 10, alpha_water = 5),
-             list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_air = 10, alpha_water = 5),
-             list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_air = 10, alpha_water = 5))
+inits = list(list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_a = 10, alpha_w = c(4,5)),
+             list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_a = 10, alpha_w = c(4,5)),
+             list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_a = 10, alpha_w = c(4,5)),
+             list(p_1k=c(.495,.495,.01), A = c(15,25), alpha_a = 10, alpha_w = c(4,5)))
 #Compile Model
 compile = stan_model("./stan/HMM.stan")
 #Run model.
-mod = sampling(compile, data= list(N = nrow(test), K = 3, 
-                                           y = test$temperature,
-                                           tau = tau_init(time = test$date), 
-                                           n = n_init(time = test$date),
-                                           air_A = 22.9,
-                                           air_mean = 5.2),
+mod = sampling(compile, data= list(N = nrow(test), K = 3,
+                                   y = test$temperature,
+                                   tau = tau_init(time = test$date), 
+                                   n = n_init(time = test$date),
+                                   air_A = 22.9,
+                                   air_mean = 5.2,
+                                   water_A = 5.2,
+                                   water_mean = 5.2),
                init = inits, warmup = 500, iter = 1000, chains = 4)
 
 #Plot
 prob_plot(mod, test$date, test$temperature, smooth = F)
 ```
 
-In the real data, if we don't provide air mean and amplitude estimates the model appears to split the water temperature data in two. Thereby sharing the same results with only marginal differences. I suspect this could be problem when a site has no air temperature data to fit. By estimating the amplitutde and mean annual air temperature at a site via the BC Climate module and lat./long. information, we can guarentee one model to be air temperature and the other water. After fitting the model where the vertical adjustement and amplitude of the air temperature model are clearly defined we get the temperature models fitting the data correctly and even capture the single air temperature values at the beginning and end of the dataset. 
+In the real data, if we don't provide air mean and amplitude estimates the model appears to split the water temperature data in two. Thereby sharing the same results with only marginal differences. I suspect this could be problem when a site has no air temperature data to fit. By estimating the amplitutde and mean annual air temperature at a site via the BC Climate module and lat./long. information, we can guarentee one model to be air temperature and the other water. We should set the priors for these values rather narrow to ensure they can only be moved by a fair bit of evidence to the contrary. After fitting the model where the vertical adjustement and amplitude of the air temperature model are clearly defined we get the temperature models fitting the data correctly and even capture the single air temperature values at the beginning and end of the dataset. 
 
 It's notable that the suspected ground data pulls the water temperature model down artificially and somewhat miss-labels the tail ground temperature data and some of the data transitioning to ground from water. This problem may be resolved by sharing data across sites in a hierarchical framework or in combination.
 
@@ -584,17 +548,21 @@ The below model includes a smoother which increases certainty of estimates with 
 #Compile Model
 compile = stan_model("./stan/HMM_smooth.stan")
 #Run model.
-mod = sampling(compile, data= list(N = nrow(test), K = 3, 
-                                           y = test$temperature,
-                                           tau = tau_init(time = test$date), 
-                                           n = n_init(time = test$date),
-                                           air_A = 22.9,
-                                           air_mean = 5.2),
+mod = sampling(compile, data= list(N = nrow(test), K = 3,
+                                   y = test$temperature,
+                                   tau = tau_init(time = test$date), 
+                                   n = n_init(time = test$date),
+                                   air_A = 22.9,
+                                   air_mean = 5.2,
+                                   water_A = 5.2,
+                                   water_mean = 5.2),
                init = inits, warmup = 500, iter = 1000, chains = 4)
 
 #Plot
 prob_plot(mod, test$date, test$temperature, smooth = T)
 ```
+
+## Random Effect Model
 
 Now I will begin playing with hierarchical based models where the data are partially pooled across sites but drawn from a distribution describing the parameter variability among sites.
 
@@ -642,9 +610,11 @@ ggplot() +
   facet_wrap(~site) + ggthemes::theme_tufte()
 ```
 
-Above we use our global model to describe the relationship between mean air temperature (known) and mean water temperature (unknown). This relationship assumes lotic environments never experience mean annual temperatures below. It also assumes that as mean air temperatures rise, mean water temperature lags behind initially until some inflection point where they become essentially the same over the middle range of air temperatures (i.e., ~20ºN to 45ºN). At really hot mean annual air temperatures (27ºC near the equator), water means again lag behind due to ground temperature dampening. By creating this relationship we can leverage known mean air temperatures across sites and draw the mean annual water temperaure towards a global mean thereby resisting local water temperature models over-fitting erroneous data (i.e., air or ground). This relationship also ensures that as we add additional sites, the predictive ability of the model gets stronger but is a bit more prone to error for sites nearing extreme values which include unusually warm and cold sites relative to the mean air temperature. Ultimately, approximating the mean annual air temperature and it's relationship with mean annual water temperature will enhance the ability for the model to discern between air, water and other erroneous data.
+Above we use our global model to describe the relationship between mean air temperature (known) and mean water temperature (unknown). This relationship assumes lotic environments never experience mean annual temperatures below 0ºC. It also assumes that as mean air temperatures rise, mean water temperature lags behind initially until some inflection point where they become essentially the same over the middle range of air temperatures (i.e., ~20ºN to 45ºN). At really hot mean annual air temperatures (27ºC near the equator), water means again lag behind due to ground temperature dampening. By creating this relationship we can leverage known mean air temperatures across sites and draw the mean annual water temperaure towards a global mean thereby resisting local water temperature models over-fitting erroneous data (i.e., air or ground). This relationship also ensures that as we add additional sites, the predictive ability of the model gets stronger but is a bit more prone to error for sites nearing extreme values which include unusually warm and cold sites relative to the mean air temperature. Ultimately, approximating the mean annual air temperature and it's relationship with mean annual water temperature will enhance the ability for the model to discern between air, water and other erroneous data.
 
 In the model above we demonstrate that we can generate simulated data and retrieve those values across multiple sites. We can also demonstrate that fits improve with the number of sites included. This is true even if we limit our sites latitudes between 40 and 60ºN which means that while the global model is not exploring the entire range of data we can still approximate these values pretty well.
+
+## HMM Random Effect Model
 
 Next we need to incorporate the hierarchical model into the HMM model and retrieve simulated data.
 
@@ -669,12 +639,12 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
                                  water_A = inits[[1]]$A[,1],
                                  water_mean = inits[[1]]$alpha_water,
                                  prior = 1),
-               init = inits, iter = 100, chains = 4)
+               init = inits, iter = 300, chains = 4)
 
 shinystan::launch_shinystan(mod)
 
 #Coefficients
-cf1 = broom::tidy(mod, pars = c("A","tau_est","sigma"), "mean") %>%
+cf1 = broom::tidy(mod, pars = c("alpha_w","A","tau_est","sigma"), "mean") %>%
   select(-std.error) %>% 
   mutate(
     site = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+",simplify = T)[,1]),
@@ -683,25 +653,27 @@ cf1 = broom::tidy(mod, pars = c("A","tau_est","sigma"), "mean") %>%
   ) %>% 
   select(-term) 
 
-cf2 = broom::tidy(mod, pars = c("alpha_w","alpha_a","t0","sigma_g"), "mean") %>%
+cf2 = broom::tidy(mod, pars = c("alpha_a","sigma_g"), "mean") %>%
   select(-std.error) %>% 
   mutate(site = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+(?=\\])",simplify = T)),
-         model = c(rep(1,20),rep(2,20),rep(3,40)),
+         model = c(rep(2,20),rep(3,20)),
          coef = stringr::str_extract_all(term, "\\w+", simplify = T)[,1]) %>% 
   select(-term)
 
-cf2[cf2$coef=="alpha_w" | cf2$coef=="alpha_a","coef"] = "alpha"
+cf1[cf1$model==1 & cf1$coef=="alpha_w",c("model","coef")] = c(rep(3,20), rep("t0",20))
+cf1[cf1$model==2 & cf1$coef=="alpha_w",c("model","coef")] = c(rep(1,20), rep("alpha",20))
+cf2[cf2$coef=="alpha_a","coef"] = "alpha"
 
-cf = bind_rows(cf1,cf2) %>% spread(key = coef, value = estimate)
+cf = rbind(cf1,cf2) %>% spread(key = coef, value = estimate)
 
 #Mean water temperature real vs. estimate
 plot(df$coefs$water_meanT, cf[cf$model == 1,"alpha"], xlim = c(0,10), ylim = c(0,10))
-text(df$coefs$water_meanT, cf[cf$model == 1,"alpha"], labels = cf[cf$model == 1,"site"], pos = 1)
+#text(df$coefs$water_meanT, cf[cf$model == 1,"alpha"], labels = cf[cf$model == 1,"site"], pos = 1)
 abline(0,1)
 points(df$coefs$water_meanT, inits[[1]]$alpha_water, col = "red")
 #Water temperature amplitude real vs. estimate
 plot(df$coefs$water_A, cf[cf$model == 1,"A"], xlim = c(0,10), ylim = c(0,10))
-text(df$coefs$water_A, cf[cf$model == 1,"A"], labels = cf[cf$model == 1,"site"], pos = 1)
+#text(df$coefs$water_A, cf[cf$model == 1,"A"], labels = cf[cf$model == 1,"site"], pos = 1)
 abline(0,1)
 points(df$coefs$water_A, inits[[1]]$A[,1], col = "red")
 
@@ -717,7 +689,7 @@ temp = temp %>% mutate(
   upper_w = mean_w + 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
   lower_w = mean_w - 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
   upper_g = mean_g + 1.96*sigma_g,
-  lower_g = mean_g + 1.96*sigma_g) %>% select(-c(6,7,9))
+  lower_g = mean_g - 1.96*sigma_g) %>% select(-c(6,7,9))
 
 #Mean air temperature fit.
 temp = cf %>% filter(model == 2) %>% left_join(temp, ., by = "site") %>% 
@@ -763,11 +735,11 @@ percent_error = df2 %>% group_by(site) %>%
 
 #Plot data, mean estimate and error.
 ggplot(data = df1) +
-  #geom_ribbon(aes(x = time, ymin = lower_g, ymax = upper_g), fill = "green", alpha = 0.3) +
+  geom_ribbon(aes(x = time, ymin = lower_g, ymax = upper_g), fill = "green", alpha = 0.3) +
   geom_ribbon(aes(x = time, ymin = lower_a, ymax = upper_a), fill = "red", alpha = 0.3) +
   geom_ribbon(aes(x = time, ymin = lower_w, ymax = upper_w), fill = "blue", alpha = 0.3) +
   geom_point(aes(time, temperature, color = median), size = .5) +
-  #geom_line(aes(time, mean_g), color = "green", size = .5, alpha = .5) +
+  geom_line(aes(time, mean_g), color = "green", size = .5, alpha = .5) +
   geom_line(aes(time, mean_a), color = "red", size = .5, alpha = .5) +
   geom_line(aes(time, mean_w), color = "blue", size = .5, alpha = .5) +
   geom_hline(yintercept = 0) +
@@ -792,11 +764,27 @@ ggplot(data = df2, aes(time,temperature)) +
   facet_wrap(~site)
 ```
 
+After much tinkering we have chosen to linearize the global model described in the water only random effect model (i.e.,"water_rand.stan"). The model describing the steapness of the relationship seemed much too sensative, biasing mean water temperature estimates in the lower exponential part of the sigmoidal curve. We also included an amplitude global model that is approximately linear with the mean water temperature estimates. This model works for northern climate locaitons but I suspect will fail as we get closer to the equator and water temperature never near 0ºC but rather are upper bound. This aspect of the model will be left for future development at this time. I've also discovered the importance of narrow priors on air and ground models and looser priors on water model parameters. By doing this we put the focus on estimating water parameters and less weight on partially known values such as air parameters. We expect that the water data this model receives will mostly be water with limited air and often no ground temperature data. As such we want to make sure the data are primarily being used to inform the water model and less so the ground and air models.
+
+
+
+
+## Notes on Development
+
+#### Generated Quantities Model Error
+Sometimes when smoothing the data, the logbeta values are very small which leads to underflow and zeros in the beta/alpha_tk estimates. This leads to all zeros in the loggamma estimate and nonsense in the gamma estimate. For now I've just asked the model to print when this occurs. It may be a result of poorly developed models that have sense been remedied.
+Example: {
 t: 2191 log gamma: [0,0,0] beta: [0,1,4.26337e-30] alpha_tk: [1,0,0] logbeta: [-26002.6,-16174.2,-16241.8]
 t: 2191 log gamma: [0,0,0] beta: [0,1,4.26337e-30] alpha_tk: [1,0,0] logbeta: [-26002.6,-16174.2,-16241.8]
 t: 2191 log gamma: [0,0,0] beta: [0,1,4.26337e-30] alpha_tk: [1,0,0] logbeta: [-26002.6,-16174.2,-16241.8]
+}
+
+#### Amplitude Global Model
 An amplitdue global model would be related to mean annual temperature in some way. Mean annual temperature would have a lower bound (0ºC) and an upper bound (~27ºC). Amplitude would probably increase linearly untill some inflection point midway between the bounds. Thus the amplitude would equal the distance between the mean annual temperature and the lower bound until the mean annual temperature increases to the point where the distance between the mean annual temperature and upper bound is less than the distance between the mean annual temperature and the lower bound.
 
             |2*(alpha_water-w_low)    : alpha_water-w_low < alpha_max-alpha_water
 amplitude = |
             |2*(alpha_max-alpha_water): alpha_water-w_low > alpha_max-alpha_water
+
+#### Mean water temperature global model
+We need a global model that describes how air and water temperature are loosely related to help the model find a fit and limit the data to physically reasonable boundaries. I propose a model where water temperature follows air temperature, often laging below air temperature but asymptoting at 0 and ~27ºC. This model is the same as a logistic curve where the parameters are related to temperature. In this model it is important to remember that air estimates will be coming from models that already account for latitude, elevation and distance to large water water bodies. Therefore, we can assume these variables are accounted for when estimating water temperature from air temperature. By strengthening priors on the air parameters we can direct change to the water temperature part of the model. This will correct the influence between what is known prior to the fit (partial understanding of air) and what is largely unknown (water parameters).
