@@ -1,4 +1,4 @@
-% Ecological Data Cleaning in the Era of Big Data
+% Cleaning Ecological Data in the Era of Big Data
 % ^1,2^Kyle A. Chezik; ^1^Jonathan W. Moore
 % ^1^Earth to Ocean Research Group -- Simon Fraser University 8888 University Dr. Burnaby BC, Canada V5A1S6 -- ^2^778.782.9427 -- kchezik@sfu.ca
 
@@ -6,7 +6,7 @@
 
 #Introduction
 
-Ecological data are inherently difficult to collect and as funding for longitudinal and labor intensive studies has declined, researchers have increasingly turned to digital technologies to approximate processes that traditionally would have been observed more directly. Digitial tools dramatically reduce the cost of data collection but are often indirect measures of the biological question which leads to added noise and uncertainty in the results. Digital data compensates for uncertainty by collecting large amounts of data at higher temporal and spatial resolutions than could be accomplished by even well funded tradtional approaches. For example, Lidar is a remote sensing tool used to collect three dimensional images. A single flight over a forest can map individual trees and be used to measure forest growth, canopy density, terrain topology, photosynthetic rate and even species composition. Currently Lidar has steep upfront costs but like many technologies, these costs are falling dramatically. 
+Ecological data are often expensive to collect in effort and capital but due to climate change important ecological questions increasingly require spatially and temporally comprehensive investigation. As funding for longitudinal and labor intensive studies declines, researchers are increasingly relying on digital technologies to approximate processes that traditionally would have been observed more directly. Digitial tools can dramatically reduce the cost of data collection but are often indirect measures of the biological process in question. Increased uncertainty do the proximal nature of these data is often compensated for in volume at higher spatial and temporal resolution than could be accomplished by even well funded tradtional approaches. For example, Lidar is a remote sensing tool used to collect three dimensional images. A single flight over a forest can map individual trees and be used to measure forest growth, canopy density, terrain topology, photosynthetic rate and even species composition. Although Lidar is a costly technology 
 
 Water temperature governs aquatic biological processes and is a fundamental and essential component to understanding aquatic ecology. .... Flowing water is especially thermally dynamic and essential to understanding lotic freshwater ecological systems.
 
