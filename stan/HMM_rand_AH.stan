@@ -27,12 +27,18 @@ parameters {
                       // A_ij[i][j] = p(z_t = j | z_{t-1} = i)
 
   //Global
-  real b;                 // Mean water temperature at mean air of 0ºC
-  real<lower=0> m;        // Change in mean water temperature with 1ºC increase in mean air T
-  real<lower=0> sigma_j;  // Mean water temperature variance
-  real b_A;               // Annual temperature amplitude at 0ºC mean annual water T
-  real<lower=0> m_A;      // Change in amplitude with 1ºC change in mean annual water T
-  real<lower=0> sigma_A;  // Water amplitude variance
+  real b_alpha_w;                 // Mean water temperature at mean air of 0ºC
+  real<lower=0> m_alpha_w;        // Change in mean water temperature with 1ºC increase in mean air T
+  real<lower=0> sigma_alpha_w;    // Mean water temperature variance
+  real b_A;                       // Annual temperature amplitude at 0ºC mean annual water T
+  real<lower=0> m_A;              // Change in amplitude with 1ºC change in mean annual water T
+  real<lower=0> sigma_A;          // Water amplitude variance
+  real<lower=0> mu_sigma_Water;
+  real<lower=0> sigma_Water;
+  real<lower=0> mu_sigma_Air;
+  real<lower=0> sigma_Air;
+  real<lower=0> mu_sigma_Ground;
+  real<lower=0> sigma_Ground;
 
   // Seasonal Temperature Model for Air and Water
   vector[S] alpha_a;                          // Mean annual air temperature
@@ -106,35 +112,50 @@ transformed parameters {
 
 model {
   // Global Priors
-  m ~ normal(1,2);
-  b ~ normal(0,10);
-  sigma_j ~ student_t(3,0,1);
-  m_A ~ normal(1,1);
-  b_A ~ normal(0,2);
-  sigma_A ~ student_t(3,0,1);
+    //Mean water temperature
+    m_alpha_w ~ normal(1,2);
+    b_alpha_w ~ normal(0,10);
+    sigma_alpha_w ~ student_t(3,.5,1);
+    //Water temperature amplitude
+    m_A ~ normal(1,1);
+    b_A ~ normal(0,2);
+    sigma_A ~ student_t(3,.5,1);
+    //Water amplitude variance
+    mu_sigma_Water ~ normal(1,1);
+    sigma_Water ~ student_t(3,.5,1);
+    //Air amplitude variance
+    mu_sigma_Air ~ normal(2,1);
+    sigma_Air ~ student_t(3,.5,1);
+    //Ground amplitude variance
+    mu_sigma_Ground ~ normal(1,.5);
+    sigma_Ground ~ student_t(3,.5,1);
 
-  // Prior of temperature alpha parameter.
-  alpha_w ~ normal(water_mean, 3);
-  alpha_a ~ normal(air_mean, 1);
+  // Local Priors
+    // Prior of temperature alpha parameter.
+    alpha_w ~ normal(water_mean, 3);
+    alpha_a ~ normal(air_mean, 1);
 
-  // Model of temperature amplitude parameter.
-  A[,1] ~ normal(water_A, 3);
-  A[,2] ~ normal(air_A, 1);
+    // Model of temperature amplitude parameter.
+    A[,1] ~ normal(water_A, 3);
+    A[,2] ~ normal(air_A, 1);
 
-  // Model tau
-  tau_est[,1] ~ normal(tau,.1);
-  tau_est[,2] ~ normal(tau,.1);
+    // Model tau
+    tau_est[,1] ~ normal(tau,.1);
+    tau_est[,2] ~ normal(tau,.1);
 
-  // Remaining Variance Priors
-  sigma[,1] ~ student_t(3,.75,1);
-  sigma[,2] ~ student_t(3,.75,1);
+    // Remaining Variance Priors
+    sigma[,1] ~ student_t(3,1,1);
+    sigma[,2] ~ student_t(3,2,1);
 
-  // Ground Priors
-  sigma_g ~ normal(0,1);
+    // Ground Priors
+    sigma_g ~ normal(1,.5);
 
-  // Global mean temperature and amplitude models
-  alpha_w ~ lognormal(log(b + m*alpha_a), sigma_j);
-  A[,1] ~ normal(b_A + m_A*alpha_w, sigma_A);
+  // Global mean temperature, amplitude and variance models
+  alpha_w ~ lognormal(log(b_alpha_w + m_alpha_w*alpha_a), sigma_alpha_w);   //mean
+  A[,1] ~ normal(b_A + m_A*alpha_w, sigma_A);                               //amplitude
+  sigma[,2] ~ normal(mu_sigma_Air, sigma_Air);                              //air
+  sigma[,1] ~ normal(mu_sigma_Water, sigma_Water);                          //water
+  sigma_g ~ normal(mu_sigma_Ground, sigma_Ground);                          //ground
 
   // Return log probabilities for each model.
   if(prior == 1){

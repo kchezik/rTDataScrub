@@ -82,8 +82,8 @@ generate = function(air_ends = F, air = F, ground_sat = F, years = 1, randomize 
   
   #relationship between W_mean and W_A.
   alpha_inf = 13.5
-  if(water_meanT<alpha_inf) water_A = water_meanT
-  else water_A = alpha_inf - (water_meanT-alpha_inf)
+  if(water_meanT<alpha_inf) water_A = water_meanT + rnorm(1, 0, .1)
+  else water_A = (alpha_inf - (water_meanT-alpha_inf)) + rnorm(1, 0, .1)
   
   water_AR = rbeta(n = 1, shape1 = 400, shape2 = 20)
   water_s_t = c(rlnorm(1,log(0.3),.07), rlnorm(1,log(.5),.07)) # d_sd N(.3,.05) and h_sd N(.5,.1)
@@ -238,6 +238,7 @@ create_inits = function(K = 3, A_ij = c(.9,.1,.1,.1,.9,.1,.1,.1,.9), p_1k = c(.4
   #Create single chain list
   init = list(p_1k = matrix(data = p_1k, nrow = n_sites, ncol = K, byrow = T),
               A_iJ = matrix(data = A_ij, nrow = K, ncol = K),
+              b_alpha_w = 2, m_alpha_w = .5, b_A = 0, m_A = 1,
               A = matrix(data = c(rep(4, n_sites),air_A), nrow = n_sites, ncol = 2),
               alpha_air = air_alpha,
               alpha_water = if_else(air_alpha>0,air_alpha,2))
@@ -620,7 +621,7 @@ Next we need to incorporate the hierarchical model into the HMM model and retrie
 
 ```{r Hierarchical HMM}
 #Create data for multiple sites.
-df = multi_site(n = 20, years = 1, air_ends = T, air = T, ground_sat = F, randomize = c(F,F,F))
+df = multi_site(n = 20, years = 1, air_ends = T, air = F, ground_sat = F, randomize = c(F,T,T))
 
 #Gather initial values.
 inits = create_inits(air_A = df$coefs$air_A, air_alpha = df$coefs$air_meanT, n_sites = length(unique(df$daily$site)), chains = 4)
@@ -639,12 +640,13 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
                                  water_A = inits[[1]]$A[,1],
                                  water_mean = inits[[1]]$alpha_water,
                                  prior = 1),
-               init = inits, iter = 300, chains = 4)
+               init = inits, iter = 300, chains = 4,
+               control = list(max_treedepth = 12))
 
 shinystan::launch_shinystan(mod)
 
 #Coefficients
-cf1 = broom::tidy(mod, pars = c("alpha_w","A","tau_est","sigma"), "mean") %>%
+cf1 = broom::tidy(mod, pars = c("A","tau_est","sigma"), "mean") %>%
   select(-std.error) %>% 
   mutate(
     site = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+",simplify = T)[,1]),
@@ -653,21 +655,21 @@ cf1 = broom::tidy(mod, pars = c("alpha_w","A","tau_est","sigma"), "mean") %>%
   ) %>% 
   select(-term) 
 
-cf2 = broom::tidy(mod, pars = c("alpha_a","sigma_g"), "mean") %>%
+cf2 = broom::tidy(mod, pars = c("alpha_a","alpha_w","sigma_g"), "mean") %>%
   select(-std.error) %>% 
   mutate(site = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+(?=\\])",simplify = T)),
-         model = c(rep(2,20),rep(3,20)),
+         model = c(rep(2,20),rep(1,40)),
          coef = stringr::str_extract_all(term, "\\w+", simplify = T)[,1]) %>% 
   select(-term)
 
-cf1[cf1$model==1 & cf1$coef=="alpha_w",c("model","coef")] = c(rep(3,20), rep("t0",20))
-cf1[cf1$model==2 & cf1$coef=="alpha_w",c("model","coef")] = c(rep(1,20), rep("alpha",20))
-cf2[cf2$coef=="alpha_a","coef"] = "alpha"
+#cf1[cf1$model==1 & cf1$coef=="alpha_w",c("model","coef")] = c(rep(3,20), rep("t0",20))
+#cf1[cf1$model==2 & cf1$coef=="alpha_w",c("model","coef")] = c(rep(1,20), rep("alpha",20))
+#cf2[cf2$coef=="alpha_a","coef"] = "alpha"
 
 cf = rbind(cf1,cf2) %>% spread(key = coef, value = estimate)
 
 #Mean water temperature real vs. estimate
-plot(df$coefs$water_meanT, cf[cf$model == 1,"alpha"], xlim = c(0,10), ylim = c(0,10))
+plot(df$coefs$water_meanT, cf[cf$model == 1,"alpha_w"], xlim = c(0,10), ylim = c(0,10))
 #text(df$coefs$water_meanT, cf[cf$model == 1,"alpha"], labels = cf[cf$model == 1,"site"], pos = 1)
 abline(0,1)
 points(df$coefs$water_meanT, inits[[1]]$alpha_water, col = "red")
@@ -679,21 +681,19 @@ points(df$coefs$water_A, inits[[1]]$A[,1], col = "red")
 
 #Mean water temperature fit.
 temp = cf %>% filter(model == 1) %>% left_join(df$daily, ., by = "site") %>% 
-  mutate(mean_w = alpha + A*cos(2*pi*d/365+tau_est*pi)) %>% select(-c(6:8,10:11))
-#Mean ground temperature fit.
-temp = cf %>% filter(model == 3) %>% select(site,sigma_g,t0) %>% left_join(temp, ., by = "site") %>% 
-  mutate(mean_g = t0) %>% select(-10)
+  mutate(mean_w = alpha_w + A*cos(2*pi*d/365+tau_est*pi),
+         mean_g = alpha_w)
 
 #Variance around mean water and ground temperature.
 temp = temp %>% mutate(
   upper_w = mean_w + 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
   lower_w = mean_w - 1.96*(cos(2*pi*d/365 + tau_est*pi)+2)*sigma,
   upper_g = mean_g + 1.96*sigma_g,
-  lower_g = mean_g - 1.96*sigma_g) %>% select(-c(6,7,9))
+  lower_g = mean_g - 1.96*sigma_g) %>% select(-c(6:12))
 
 #Mean air temperature fit.
 temp = cf %>% filter(model == 2) %>% left_join(temp, ., by = "site") %>% 
-  mutate(mean_a = alpha + A*cos(2*pi*d/365+tau_est*pi))
+  mutate(mean_a = alpha_a + A*cos(2*pi*d/365+tau_est*pi))
 
 #Variance around mean air temperature.
 temp = temp %>% mutate(
@@ -722,9 +722,6 @@ model = unlist(apply(xi_est, 1, function(x){
 
 #Calculate probability of data given each model
 xi_est = xi_est %>% mutate(day = day, est_source = model)
-
-xi_est %>% filter(day %in% which(df$daily$site==18)) %>% select(est_source, day, median) %>% 
-  spread(., key = est_source, value = median) %>% arrange(day) %>% print.data.frame()
 
 df1 = xi_est %>% filter(est_source == "water") %>% arrange(day) %>% bind_cols(temp, .) %>% select(-variable, -day)
 df2 = xi_est %>% group_by(day) %>% filter(median == max(median)) %>% 
