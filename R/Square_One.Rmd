@@ -640,7 +640,7 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
                                  water_A = inits[[1]]$A[,1],
                                  water_mean = inits[[1]]$alpha_water,
                                  prior = 1),
-               init = inits, iter = 300, chains = 4,
+               init = inits, iter = 100, chains = 4,
                control = list(max_treedepth = 12))
 
 shinystan::launch_shinystan(mod)
@@ -727,8 +727,24 @@ df1 = xi_est %>% filter(est_source == "water") %>% arrange(day) %>% bind_cols(te
 df2 = xi_est %>% group_by(day) %>% filter(median == max(median)) %>% 
   arrange(day) %>% bind_cols(temp,.) %>% select(-variable, -day)
 df2 = df2 %>% mutate(err = if_else(source == est_source, 1,19))
-percent_error = df2 %>% group_by(site) %>% 
-  summarise(percent_error = round((1-sum(source==est_source)/nrow(df2))*100))
+percent_error = df2 %>% group_by(site) %>%
+  do({
+    browser()
+    data.frame(
+      n_water = sum(.$source == "water"),
+      n_AG = sum(.$source != "water"),
+      error1 = round((1-sum(.$source[.$source == "water"] == .$est_source[.$source == "water"])/sum(.$source == "water"))*100),
+      error2 = round((sum(.$source[.$est_source=="water"]!="water")/sum(.$source!="water"))*100),
+      x_pos = min(.$time[lubridate::month(.$time)==2])-30
+    )
+  })
+
+percent_error$y_pos = if_else(max(df2$temperature)%%10!=0,
+                            round(max(df2$temperature)/10)*10-10,
+                            max(df2$temperature))
+percent_error = percent_error %>%
+  mutate(label1 = paste("type I : ",as.character(error1),"% of ",as.character(n_water),sep = ""),
+         label2 = paste("type II: ",as.character(error2),"% of ",as.character(n_AG),sep = ""))
 
 #Plot data, mean estimate and error.
 ggplot(data = df1) +
@@ -742,23 +758,25 @@ ggplot(data = df1) +
   geom_hline(yintercept = 0) +
   viridis::scale_color_viridis() +
   ggthemes::theme_tufte() +
-  theme(legend.direction = "horizontal") +
-  labs(color ="Probability Water", x = "Date", y = "Temperature") +
+ # theme(legend.direction = "horizontal") +
+  labs(color ="Probability \n Water", x = "Date", y = "Temperature") +
   guides(colour = guide_colourbar(title.position="top")) +
-  facet_wrap(~site) + ggthemes::theme_tufte()
+  facet_wrap(~site)
 
-ggplot(data = df2, aes(time,temperature)) +
+p = ggplot(data = df2, aes(time,temperature)) +
   geom_point(data = filter(df2, err == 19), aes(time, temperature, color = est_source), shape = 19) +
   geom_point(data = filter(df2, err == 1), aes(time, temperature, color = est_source), shape = 1) +
   geom_line(aes(time, mean_w)) +
   geom_ribbon(aes(time, ymin = lower_w, ymax = upper_w), 
                 alpha = .3, fill = "royalblue") +
   geom_hline(yintercept = 0) +
-  labs(color = paste(as.character(percent_error),"% error",sep=""), x = "Date", y = "Temperature") +
+  labs(color = "Estimated Thermal Source", x = "Date", y = "Temperature") +
   ggthemes::theme_tufte() + 
   theme(legend.direction = "horizontal", legend.position = "top") + 
   guides(color = guide_legend(title.position = "top")) +
   facet_wrap(~site)
+p + geom_text(data = percent_error, aes(x = x_pos, y = y_pos, label = label1), hjust = "left") +
+  geom_text(data = percent_error, aes(x = x_pos, y = y_pos-8, label = label2), hjust = "left")
 ```
 
 After much tinkering we have chosen to linearize the global model described in the water only random effect model (i.e.,"water_rand.stan"). The model describing the steapness of the relationship seemed much too sensative, biasing mean water temperature estimates in the lower exponential part of the sigmoidal curve. We also included an amplitude global model that is approximately linear with the mean water temperature estimates. This model works for northern climate locaitons but I suspect will fail as we get closer to the equator and water temperature never near 0ºC but rather are upper bound. This aspect of the model will be left for future development at this time. I've also discovered the importance of narrow priors on air and ground models and looser priors on water model parameters. By doing this we put the focus on estimating water parameters and less weight on partially known values such as air parameters. We expect that the water data this model receives will mostly be water with limited air and often no ground temperature data. As such we want to make sure the data are primarily being used to inform the water model and less so the ground and air models.

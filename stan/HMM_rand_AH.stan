@@ -42,9 +42,9 @@ parameters {
 
   // Seasonal Temperature Model for Air and Water
   vector[S] alpha_a;                          // Mean annual air temperature
-  vector<lower = 0>[S] alpha_w;               // Mean annual water temperature
+  vector<lower=0>[S] alpha_w;               // Mean annual water temperature
   positive_ordered[2] A[S];                   // Annual temperature amplitude
-  vector<lower = 0, upper = 1>[2] tau_est[S]; // Seasonal location parameter
+  vector<lower=0, upper = 1>[2] tau_est[S]; // Seasonal location parameter
   positive_ordered[2] sigma[S];               // Seasonal variance parameter
 
   // Ground model
