@@ -40,7 +40,7 @@ Water and air temperatures are highly correlated, following the seasonal dynamic
 \end{equation}
 \end{linenomath*}
 
-where $z_{w,a}$ refers to water and air state coefficients respectively. The mean annual temperature is captured in $\alpha$ while the range of values around $\alpha$ (i.e., amplitude) are captured in $A$. The frequency of the temperature cycle ($\omega$) is described by,
+where water and air state coefficients (i.e., $z_{w,a}$) are fit for each state. The mean annual temperature is captured in $\alpha$ while the range of values around $\alpha$ (i.e., amplitude) are captured in $A$. The frequency of the temperature cycle ($\omega$) is described by,
 
 \begin{linenomath*}
 \begin{equation}
@@ -48,13 +48,13 @@ where $z_{w,a}$ refers to water and air state coefficients respectively. The mea
 \end{equation}
 \end{linenomath*}
 
-where $\gamma$ is the number of observations per cycle and $d_{n}$ the location of observation $n$ in the cycle. 
+where $\gamma$ is the number of observations per cycle and $d_{n}$ the location of observation $n$ in the cycle. We include a seasonal adjustment in $\tau$ to account for where the temperature data begins in the seasonal cycle.
 
-The variance is normally distributed around zero and allowed to exponentially grow and decline with the mean temperature by the scaling factor $\sigma$. 
+The variance around the mean temperature is a distinguishing feature between annual air and water temperature cycles. In both cases the variance is allowed to exponentially grow and decline with the mean and is centered on zero with independant scaling factors estimated in $\sigma$.
 
 \begin{linenomath*}
 \begin{equation}
-	\eta_{z_{w,a}} \sim \mathcal{N}(0, \exp(\cos(2\pi\omega + \tau_{z_{w,a}}\pi))\sigma_{z_{w\prec a}})  \label{eq3}
+	\eta_{z_{w,a}} \sim \mathcal{N}(0, \exp(\cos(2\pi\omega + \tau_{z_{w,a}}\pi))\sigma_{z_{w\prec a}})  \label{eq4}
 \end{equation}
 \end{linenomath*}
 
@@ -62,15 +62,56 @@ We expect $A$ and $\sigma$ values to be ordered (e.g., $\prec$) because the high
 
 *Ground Temperature Model*
 
-*Global Model*
+Our third state is a ground temperature model that describes when a temperature sensor becomes buried in saturated sediment and no longer exhibits the cyclical pattern found in water and air temperature. To capture the stable temperature dynamics of water saturated ground temperature we used an intercept only model,
+
+\begin{linenomath*}
+\begin{equation}
+	y_{n} = \alpha_{w} + \epsilon_{z_{g}}, \quad \epsilon_{z_{g}} \sim \mathcal{N}(0, \sigma_{z_{g}}), \label{eq5}
+\end{equation}
+\end{linenomath*}
+
+where the mean is shared with the mean water temperature ($\alpha_{z_{w}}$) of the seasonal cycle but the variance around the mean is described by $\sigma_{z_{g}}$ and is consistent through time.
+
+*Global Models*
+
+Parameters describing air, water and ground models exhibit dependancies and can be described by global models that allow data across time and space to be shared therby providing greater state estimation certainty. The mean annual water temperature ($\alpha_{z_{w}}$) is the coefficient shared with the ground state and is strongly correlated with the air state across positive values. Here we use a linear model in log-space to describe this relationship as,
+
+\begin{linenomath*}
+\begin{equation}
+	\alpha_{z_{w}} = \ln(b_{\alpha} + m_{\alpha}\alpha_{z_{a}}) + \epsilon_{\alpha}, \quad \epsilon_{\alpha} \sim \mathcal{\ln}(0,\varepsilon_{\alpha}), \label{eq6}
+\end{equation}
+\end{linenomath*}
+
+where $b_{\alpha}$ is the mean annual water temperature when mean annual air temperature is zero and $m_{\alpha}$ describes the rate at which $\alpha_{z_{w}}$ increases with $\alpha_{z_{a}}$. Due to local characteristics of watersheds such as glaciers, ground water, canopy cover, elevation, etc., that contribute to water's temperature profile, we allowed the mean annual water temperature estimates to vary around the mean with lognormal errors captured in $\varepsilon_{\alpha}$.
+
+For locations where the air temperature spends a period of time below 0$\text{\textdegree}$C the water temperature's $A_{z_{w}}$ is lower bound by zero and thus reflects the mean annual water temperature (i.e., $\alpha_{z_{w}}$). We can leverage this relationship by including a model for water temperatures amplitude estimate as,
+
+\begin{linenomath*}
+\begin{equation}
+	A_{z_{w}} = b_{A} + m_{A}\alpha_{z_{w}} + \epsilon_{A}, \quad \epsilon_{A} \sim \mathcal{N}(0,\varepsilon_{A}), \label{eq7}
+\end{equation}
+\end{linenomath*}
+
+where the y-intercept ($b_{A}$) is the amplitude when the mean annual water temperature is freezing (i.e., 0$\text{\textdegree}$C). The rate of change in $A_{z_{w}}$ as the mean annual water temperature increases is approximated in $m_{A}$ and the variance around the mean is captured in $\varepsilon_{A}$.
+
+Finally, the error terms for the three state models (i.e., $\sigma_{z}$) can be constrained by assuming they are drawn from a larger population of error terms. To do this we model the variance in these models as,
+
+\begin{linenomath*}
+\begin{equation}
+	\sigma_{z} = \mu_{\sigma_{z}} + \epsilon_{\sigma_{z}}, \quad \epsilon_{\sigma{z}} \sim \mathcal{N}(0,\varepsilon_{\sigma_{z}}), \label{eq8}
+\end{equation}
+\end{linenomath*}
+
+where $\mu_{\sigma_{z}}$ is the mean variance estimate with error term $\varepsilon_{\sigma_{z}}$ describing the variance around the mean.
+
+*Temperature HMM*
+
+Combining the state models, global models and latent state model 
 
 *Simulated Data*
 
 * *Temperature*
   * *Ground*
-
-*Temperature HMM*
-
 
 
 Dependance in time series data adds additional complications to error identification in stream temperature data but can also be leveraged as a strength. Due to the seasonal periodicity of temperature, errors during certain periods may be accurate readings at other times in the cycle. As a result, treating data as independant and grouping by value will lead to frequent type 1 and type 2 errors where the data are incorrectly labeled error or accurate respectively. HMMs use the information in the previous time step to inform the subsequent time step. This characteristic of HMMs takes the autocorrelation of temperature data and leverages it to improve group estimation certainty and accuracy. 
