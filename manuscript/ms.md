@@ -20,7 +20,7 @@ Here we build a Hidden Markov Model for stream temperature data with the primary
 
 *Hidden Markov Models*
 
-Hidden Markov Models, here-forward refered to as HMMs, are a type of state-space model that offers a discrete probabilistic framework governing the change between states ($z_{n}$) [@Hamilton:2016]. In our instance, we believe three states exist ($j$=3) and the probability of being in one of those states is described by a Markov chain with,
+Hidden Markov Models, here-forward refered to as HMMs, are a type of state-space model that offers a probabilistic framework governing the transition between states through time [@Hamilton:2016]. In our stream temperature data we expect two states to exist, the desired state where the data exhibit stream temperature dynamics and an erroneous state where the data exhibit air temperature dynamics. The probability of being in either state is described by the first order Markov chain,
 
 \begin{linenomath*}
 \begin{equation}
@@ -28,73 +28,77 @@ Hidden Markov Models, here-forward refered to as HMMs, are a type of state-space
 \end{equation}
 \end{linenomath*}
  
-where the current state is largely informed by the state probabilities of the previous time step. The state $z_{n}$ is infered by the probability of observing the temperature data $y_{n}$ given the parameters describing water, air and ground temperature.
-
-*Water & Air Temperature Models*
-
-Water and air temperatures are highly correlated, following the seasonal dynamics derived from changing levels of solar radiation related to the earths orbit and tilt of its axis. Due to differences in thermal dynamics of gases and liquids, the temperature cycle of air and water do diverge in magnitude and timing. Therefore, we use the same cyclical temperature model [e.g., @Shumway:2000] for both water and air temperature states in our HMM described by,
+where the state probabilities at time point $n$ are informed by the state probabilities in the previous time points. This structure captures the inherent temporal auto-correlation of time series data in the latent state. Plainly, we expect to remain in an air or water state if that was the state in the previous time step(s). We cannot observe the true state directly so we infer $z_{n}$ by considering the probability of the observed data $y_{n}$ in either state given,
 
 \begin{linenomath*}
 \begin{equation}
-	y_{n} = \alpha_{z_{w,a}} + A_{z_{w\prec a}}\cos(2\pi\omega + \tau_{z_{w,a}}\pi) + \eta_{z_{w,a}}, \label{eq2}
+	\xi_{j,n} = \mathrm{Pr}(z_{n} = j|\Omega_{n};\theta), \label{eq2}
 \end{equation}
 \end{linenomath*}
 
-where water and air state coefficients (i.e., $z_{w,a}$) are fit for each state. The mean annual temperature is captured in $\alpha$ while the range of values around $\alpha$ (i.e., amplitude) are captured in $A$. The frequency of the temperature cycle ($\omega$) is described by,
+where the probabilities for $j = a,w$, sum to one. Our observed data is denoted by $\Omega$ and is indexed by date ($n$) while our state coefficients are captured in $\theta$ and represents the unknown model parameters that describe each state. The joint distribution of the state model $p(z_{n}|z_{n-1})$ and observation model $p(y_{n}|z_{n})$ described by,
 
 \begin{linenomath*}
 \begin{equation}
-	\omega = d_{n}/\gamma, \label{eq3}
+	p(z_{1:T},y_{1:T}) = [p(z_{1}) \prod_{n=2}^{T} p(z_{t}|z_{t-1})] [\prod_{t=1}^{T} p(y_{t}|z_{t})], \label{eq3}
 \end{equation}
 \end{linenomath*}
 
-where $\gamma$ is the number of observations per cycle and $d_{n}$ the location of observation $n$ in the cycle. We include a seasonal adjustment in $\tau$ to account for where the temperature data begins in the seasonal cycle.
+implies the probability of being in a given state $j$ depends on the state probabilities in the previous time step and the relative support of the data in the current time step [@Damiano:2017]. A more in depth discussion of the HMM algorithm can be found in @Hamilton:2016 and a very good tutorial has been developed by @Damiano:2017 which acted as the framework for this study.
+
+*States: Water & Air Temperature Models*
+
+Water and air temperatures follow the seasonal dynamics derived from changing levels of solar radiation related to the earths orbit and tilt of its axis. The shared ultimate cause of temperature and the passive exchange of energy between the two mediums, results in stream and water temperature cycles being closesly correlated. But due to differences in thermal dynamics of gases and liquids, the temperature cycles' of air and water do diverge in magnitude and timing. Therefore, we used the same model [e.g., @Shumway:2000] for both water and air temperature states described by,
+
+\begin{linenomath*}
+\begin{equation}
+	y_{n} = \alpha_{z_{w,a}} + A_{z_{w\prec a}}\cos(2\pi\omega + \tau_{z_{w,a}}\pi) + \eta_{z_{w\prec a}}, \quad \eta_{z_{w\prec a}} \sim \mathcal{N}(0, f(\mathrm{S}_{n})), \label{eq4}
+\end{equation}
+\end{linenomath*}
+
+where a cosine curve capturing the seasonal ocilation of temperature ($y_{n}$) is modified by state coefficients that describe the dynamics of air and water temperature ($z_{w,a}$). The mean annual temperature is captured in $\alpha$ while the range of values around $\alpha$ (i.e., amplitude) are captured in $A$. The frequency of the temperature cycle ($\omega$) is described by,
+
+\begin{linenomath*}
+\begin{equation}
+	\omega = d_{n}/\gamma, \label{eq5}
+\end{equation}
+\end{linenomath*}
+
+where $\gamma$ is the number of observations per cycle and $d_{n}$ the integer location of observation $n$ in the cycle. We include a seasonal adjustment in $\tau$ to shift the cosine curve from the default peak value of 1 at the origin to the point in the cycle where temperature observations begin. 
 
 The variance around the mean temperature is a distinguishing feature between annual air and water temperature cycles. In both cases the variance is allowed to exponentially grow and decline with the mean and is centered on zero with independant scaling factors estimated in $\sigma$.
 
 \begin{linenomath*}
 \begin{equation}
-	\eta_{z_{w,a}} \sim \mathcal{N}(0, \exp(\cos(2\pi\omega + \tau_{z_{w,a}}\pi))\sigma_{z_{w\prec a}})  \label{eq4}
+	f(\mathrm{S}_{n}) = \exp(\cos(2\pi\omega + \tau_{z_{w,a}}\pi))\sigma_{z_{w\prec a}}  \label{eq6}
 \end{equation}
 \end{linenomath*}
 
-We expect $A$ and $\sigma$ values to be ordered (e.g., $\prec$) because the higher thermal capacity of water reduces the variance and amplitude of water's temperature cycle. Therefore, when the data are in the air temperature state we expect the amplitude and variance to always be larger than when data are in the water temperature state.
-
-*Ground Temperature Model*
-
-Our third state is a ground temperature model that describes when a temperature sensor becomes buried in saturated sediment and no longer exhibits the cyclical pattern found in water and air temperature. To capture the stable temperature dynamics of water saturated ground temperature we used an intercept only model,
-
-\begin{linenomath*}
-\begin{equation}
-	y_{n} = \alpha_{w} + \epsilon_{z_{g}}, \quad \epsilon_{z_{g}} \sim \mathcal{N}(0, \sigma_{z_{g}}), \label{eq5}
-\end{equation}
-\end{linenomath*}
-
-where the mean is shared with the mean water temperature ($\alpha_{z_{w}}$) of the seasonal cycle but the variance around the mean is described by $\sigma_{z_{g}}$ and is consistent through time.
+We expect $A$ (eq.$\ref{eq4}$) and $\sigma$ (eq.$\ref{eq6}$) to be ordered (i.e., $z_{w}\prec z_{a}$) because the higher thermal capacity of water reduces the variance and amplitude of water's annual temperature cycle. Therefore, when the data are in the air temperature state we expect the amplitude and variance to always be larger than when data are in the water temperature state. Ordering of variables not only captures the differential dynamics of the states but increases the stability of estimation by reducing the potential for state inversion (i.e., label switching).
 
 *Global Models*
 
-Parameters describing air, water and ground models exhibit dependancies and can be described by global models that allow data across time and space to be shared therby providing greater state estimation certainty. The mean annual water temperature ($\alpha_{z_{w}}$) is the coefficient shared with the ground state and is strongly correlated with the air state across positive values. Here we use a linear model in log-space to describe this relationship as,
+Parameters describing air and water dynamics exhibit dependancies that scale together across locations. For instance, among locations the mean annual air and water temperatures increase together over positive values. Capturing these global relationships in a hierarchical model allows information to be shared among locations leading to better parameter estimation and subsequently greater certainty in state estimation. As mentioned, the mean annual water temperature ($\alpha_{z_{w}}$) is strongly correlated with the mean annual air temperature ($\alpha_{z_{a}}$). Here we use a linear model in log-space to describe this relationship as,
 
 \begin{linenomath*}
 \begin{equation}
-	\alpha_{z_{w}} = \ln(b_{\alpha} + m_{\alpha}\alpha_{z_{a}}) + \epsilon_{\alpha}, \quad \epsilon_{\alpha} \sim \mathcal{\ln}(0,\varepsilon_{\alpha}), \label{eq6}
+	\ln(\alpha_{z_{w}}) = b_{\alpha} + m_{\alpha}\alpha_{z_{a}} + \epsilon_{\alpha}, \quad \epsilon_{\alpha} \sim \mathcal{N}(0,\varepsilon_{\alpha}), \label{eq7}
 \end{equation}
 \end{linenomath*}
 
-where $b_{\alpha}$ is the mean annual water temperature when mean annual air temperature is zero and $m_{\alpha}$ describes the rate at which $\alpha_{z_{w}}$ increases with $\alpha_{z_{a}}$. Due to local characteristics of watersheds such as glaciers, ground water, canopy cover, elevation, etc., that contribute to water's temperature profile, we allowed the mean annual water temperature estimates to vary around the mean with lognormal errors captured in $\varepsilon_{\alpha}$.
+where $b_{\alpha}$ is the mean annual water temperature when mean annual air temperature is zero and $m_{\alpha}$ describes the rate at which $\alpha_{z_{w}}$ increases with $\alpha_{z_{a}}$. Due to local characteristics of watersheds such as glaciers, ground water, canopy cover, elevation, etc., that contribute to water's temperature profile, we allowed the mean annual water temperature estimates to vary around the mean with normal errors captured in $\varepsilon_{\alpha}$. By log transforming the response variable ($\alpha_{z_{w}}$) we ensure mean annual water temperature estimates remain positive as negative values would suggest the water is frozen.
 
-For locations where the air temperature spends a period of time below 0$\text{\textdegree}$C the water temperature's $A_{z_{w}}$ is lower bound by zero and thus reflects the mean annual water temperature (i.e., $\alpha_{z_{w}}$). We can leverage this relationship by including a model for water temperatures amplitude estimate as,
+For locations where the air temperature spends a period of time below 0$\text{\textdegree}$C the water temperature is lower bound by zero. As a result $A_{z_{w}}$ reflects the mean annual water temperature (i.e., $\alpha_{z_{w}}$). We can leverage this relationship by including a model for water temperatures amplitude estimate as,
 
 \begin{linenomath*}
 \begin{equation}
-	A_{z_{w}} = b_{A} + m_{A}\alpha_{z_{w}} + \epsilon_{A}, \quad \epsilon_{A} \sim \mathcal{N}(0,\varepsilon_{A}), \label{eq7}
+	A_{z_{w}} = \alpha_{z_{w}} + \epsilon_{A}, \quad \epsilon_{A} \sim \mathcal{N}(0,\varepsilon_{A}), \label{eq7}
 \end{equation}
 \end{linenomath*}
 
-where the y-intercept ($b_{A}$) is the amplitude when the mean annual water temperature is freezing (i.e., 0$\text{\textdegree}$C). The rate of change in $A_{z_{w}}$ as the mean annual water temperature increases is approximated in $m_{A}$ and the variance around the mean is captured in $\varepsilon_{A}$.
+where the $A_{z_{w}}$ is approximated by the mean annual water temperature estimate $\alpha_{z_{w}}$) with $\varepsilon_{A}$ capturing variation shared among sites.
 
-Finally, the error terms for the three state models (i.e., $\sigma_{z}$) can be constrained by assuming they are drawn from a larger population of error terms. To do this we model the variance in these models as,
+Finally, the error terms for the two state models (i.e., $\sigma_{z}$ in eq. \ref{eq6}) can be constrained by assuming they are drawn from a larger population of error terms. To do this we describe the variance in these models as,
 
 \begin{linenomath*}
 \begin{equation}
@@ -102,11 +106,13 @@ Finally, the error terms for the three state models (i.e., $\sigma_{z}$) can be 
 \end{equation}
 \end{linenomath*}
 
-where $\mu_{\sigma_{z}}$ is the mean variance estimate with error term $\varepsilon_{\sigma_{z}}$ describing the variance around the mean.
+where $\mu_{\sigma_{z}}$ is the mean variance estimate with error term $\varepsilon_{\sigma_{z}}$ describing the variance around the mean. This model will draw in extreme estimates of variance thereby reducing their influence in likliehood contributions when calculating state probabilities.
 
 *Temperature HMM*
 
-Combining the state models, global models and latent state model 
+By evaluating the likelihood of the data ($y_{n}$) given the global (eq.'s $\ref{eq6}$, $\ref{eq7}$, $\ref{eq8}$) and state models (eq.'s $\ref{eq2}$, $\ref{eq5}$), we can make inference about which state ($z_{j}$) the data are in at a given time point ($n$) by considering probabilities 
+
+
 
 *Simulated Data*
 
