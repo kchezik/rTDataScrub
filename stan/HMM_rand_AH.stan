@@ -22,7 +22,6 @@ data {
 
 parameters {
   // Discrete state model
-  simplex[K] p_1k[S]; // Initial state probabilities
   simplex[K] A_ij[K]; // Transition probabilities
                       // A_ij[i][j] = p(z_t = j | z_{t-1} = i)
 
@@ -48,6 +47,7 @@ parameters {
   positive_ordered[2] sigma[S];               // Seasonal variance parameter
 
   // Ground model
+  vector[S] t0;
   vector<lower=0>[S] sigma_g; // Ground temperature variance
 }
 
@@ -68,16 +68,15 @@ transformed parameters {
         //Air
         mu[1]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
         season[1]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi()))*sigma[site[t],2];
-        unalpha_tk[t,1]= log(p_1k[site[t],1])+ normal_lpdf(y[t]| mu[1], season[1]);
+        unalpha_tk[t,1]= log(0.495)+ normal_lpdf(y[t]| mu[1], season[1]);
 
         //Water
         mu[2]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
         season[2]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi()))*sigma[site[t],1];
-        unalpha_tk[t,2]= log(p_1k[site[t],2])+ normal_lpdf(y[t]| mu[2], season[2]);
+        unalpha_tk[t,2]= log(0.495)+ normal_lpdf(y[t]| mu[2], season[2]);
 
         //Ground
-        unalpha_tk[t,3] = log(p_1k[site[t],3])+
-          normal_lpdf(y[t]| alpha_w[site[t]], sigma_g[site[t]]);
+        unalpha_tk[t,3] = log(0.01)+ normal_lpdf(y[t]| t0[site[t]], sigma_g[site[t]]);
       }
       else {
         for (j in 1:K) {    // j = current (t) or transition state column.
@@ -100,7 +99,7 @@ transformed parameters {
               if(j == 3){
                 //Ground
                 accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+
-                  normal_lpdf(y[t]| alpha_w[site[t]], sigma_g[site[t]]);
+                  normal_lpdf(y[t]| t0[site[t]], sigma_g[site[t]]);
               }
           }
           unalpha_tk[t, j] = log_sum_exp(accumulator);
@@ -111,6 +110,17 @@ transformed parameters {
 }
 
 model {
+  // Transition State Priors
+    A_ij[1,1] ~ beta(10,2);
+    A_ij[2,1] ~ beta(2,10);
+    A_ij[3,1] ~ beta(2,10);
+    A_ij[1,2] ~ beta(2,10);
+    A_ij[2,2] ~ beta(10,2);
+    A_ij[3,2] ~ beta(2,10);
+    A_ij[1,3] ~ beta(2,10);
+    A_ij[2,3] ~ beta(2,10);
+    A_ij[3,3] ~ beta(10,2);
+
   // Global Priors
     //Mean water temperature
     m_alpha_w ~ normal(1,2);
@@ -148,7 +158,8 @@ model {
     sigma[,2] ~ student_t(3,2,1);
 
     // Ground Priors
-    sigma_g ~ normal(1,.5);
+    t0 ~ normal(alpha_w, 3);
+    sigma_g ~ normal(1,2);
 
   // Global mean temperature, amplitude and variance models
   alpha_w ~ lognormal(log(b_alpha_w + m_alpha_w*alpha_a), sigma_alpha_w);   //mean
@@ -217,7 +228,7 @@ generated quantities {
             if(j == 3){
               //Ground
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                normal_lpdf(y[t]| alpha_w[site[t]], sigma_g[site[t]]);
+                normal_lpdf(y[t]| t0[site[t]], sigma_g[site[t]]);
             }
           }
           logbeta[t-1,j] = log_sum_exp(accumulator);
