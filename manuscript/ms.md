@@ -111,28 +111,33 @@ where $\mu_{\sigma_{z}}$ is the mean variance estimate with error term $\varepsi
 
 *Temperature HMM*
 
-By evaluating the likelihood of the data ($y_{t}$) given the state models (eq.$\ref{eq4}$) and their governing global models (eqs. $\ref{eq7},\ref{eq8},\ref{eq9}$), weighted by the previous time step's state probabilities (eq.$\ref{eq1}$), we can make inference about which state ($k=a,w$) the data are in at each time point. Iteratively evaluating eq. $\ref{eq3}$ returns state probabilities that indicate whether the temperature data represent an air or water source as well as our certainty of that estimate. We implimented this process in the probabilistic programming language Stan [@Stan:2017]. Priors indicating our parameter value expectations were incorporated into the model, thereby providing coefficient guidance to states with limited data at a given site. Global parameters were provided weakly-informative-normally-distributed priors that encourage positive relationships while variance parameter priors were weakly-informative and drawn from student-t distibutions to account for potentially extreme values. 
+By evaluating the likelihood of the data ($y_{t}$) given the state models (eq.$\ref{eq4}$) and their governing global models (eqs. $\ref{eq7},\ref{eq8},\ref{eq9}$), weighted by the previous time step's state probabilities (eq.$\ref{eq1}$), we can make inference about which state ($k=a,w$) the data are in at each time point. Iteratively evaluating eq.$\ref{eq3}$ returns state probabilities that indicate whether the temperature data represent an air or water source as well as our certainty of that estimate. We implimented this process in the probabilistic programming language Stan [@Stan:2017]. Priors indicating our parameter value expectations were incorporated into the model, thereby providing coefficient guidance to states with limited data at a given site. Global parameters were provided weakly-informative-normally-distributed priors that encourage positive relationships while variance parameter priors were weakly-informative and drawn from student-t distibutions to account for potentially extreme values. 
 
 *Simulated Data*
 
-We simulated data from our state and global models to demonstrate model efficacy and test error rates under a variety of realistic but ultimately contrived scenarios. Using the relationships described in Fig. 6 of @Gates:1999 and in @Pearce:1990 between mean annual air temperature ($\mathrm{MAT}$), annual temperature range ($A$) and latitude ($L_{N}$), we calculated $\mathrm{MAT}$ and $A$ for a variety of latitudes between 30 and 60$\text{\textdegree}$N.
+We simulated data from our state and global models to demonstrate model efficacy and test error rates under a variety of contrived but realistic scenarios. Using the relationships described in Fig. 6 of @Gates:1999 and in @Pearce:1990 describing the effect of latitude ($L_{N}$) on mean annual air temperature ($\alpha_{a}$) and annual temperature range ($A_{a}$), we calculated $\alpha_{a}$ and $A_{a}$ for a variety of latitudes between 30 and 60$\text{\textdegree}$N.
 
 \begin{linenomath*}
 \begin{equation}
-	\mathrm{MAT} = 27-(L_{N}-16)*0.65, \quad  A=L_{N}*0.4 \label{eq10}
+	\alpha_{a} = 27-(L_{N}-16)*0.65, \quad  A_{a}=L_{N}*0.4 \label{eq10}
 \end{equation}
 \end{linenomath*}
 
-These $\mathrm{MAT}$ and $A$ values were translated to water values using the logistic function,
+These $\alpha_{a}$ and $A_{a}$ values were translated to water values ($\alpha_{w}$) using the logistic function,
 
 \begin{linenomath*}
 \begin{equation}
-	f(\mathrm{MAT}_{w}) = L/1+\exp(-k*\mathrm{MAT}_{a}),	\label{eq11}
+	f(\alpha_{w}) = 27/1+\exp(-0.15*(\alpha_{a}-16)),	\label{eq11}
 \end{equation}
 \end{linenomath*}
 
+where $\alpha_{w}$ values are bound between 0 and 27$\text{\textdegree}$C, had a midpoint of 16$\text{\textdegree}$C and changed over $\alpha_{a}$ values with a steepness coefficient of 0.15. We simply doubled mean annual water temperatures to calculate $A_{w}$ which ensured simulated water temperatures were rarely below 0$\text{\textdegree}$C. Uncertainty was included in all $\alpha$ and $A$ coeffiecients by sampling random noise from a normal distribution.
+
+Upon random sampling a common $\tau$ estimate from a flat beta distribution for both simulated water and air data, we generated temperature data using eqs. $\ref{eq4}$, $\ref{eq5}$, and $\ref{eq6}$ with one difference. In the simulated data we allowed the errors around the mean to be correlated in order to produce data with momentum as is observed in real temperature data. Therefore, if temperatures are above the mean on a given day they will likely be above the mean on the subsequent day. In order to generate a single time series of water with erroneous air data we randomly selected chunks of water temperature data to be replaced by air temperature data. We also allowed for the first and last data point in the series to be air temperature among a random sample of sites, as air is often recorded when deploying and retrieving temperature loggers.
 
 *Observed Data*
+
+To demonstrate a real world application, we apply this model to raw stream temperature data collected in the Thompson River basin in central British Columbia Canada. Collected for the purpose of 
 
 By extracting mean annual air temperatures and associated annual temperature range estimates from ClimateBC [@Wang:2012], we were able to provide locally adjusted (e.g., elevation, latitude) $\alpha_{a}$ and $A_{a}$ priors. During simulation these priors were estimated using a 
 
@@ -141,14 +146,13 @@ By extracting mean annual air temperatures and associated annual temperature ran
 We placed weakly informative normally-distributed proirs on $\alpha$ using site specific mean annual air temperature estimates from either simulation or ClimateBC [@Wang:2012], a climate downscaling tool for British Columbia Canada. When mean annual air temperatures were below 0$\text{\textdegree}$C we defaulted mean annual water temperature priors to zero.
 
 
-* *Temperature*
-  * *Ground*
+*Summary Statistic Calculations*
 
-
-Dependance in time series data adds additional complications to error identification in stream temperature data but can also be leveraged as a strength. Due to the seasonal periodicity of temperature, errors during certain periods may be accurate readings at other times in the cycle. As a result, treating data as independant and grouping by value will lead to frequent type 1 and type 2 errors where the data are incorrectly labeled error or accurate respectively. HMMs use the information in the previous time step to inform the subsequent time step. This characteristic of HMMs takes the autocorrelation of temperature data and leverages it to improve group estimation certainty and accuracy. 
 
 #Results
 
 #Discussion
+
+Dependance in time series data adds additional complications to error identification in stream temperature data but can also be leveraged as a strength. Due to the seasonal periodicity of temperature, errors during certain periods may be accurate readings at other times in the cycle. As a result, treating data as independant and grouping by value will lead to frequent type 1 and type 2 errors where the data are incorrectly labeled error or accurate respectively. HMMs use the information in the previous time step to inform the subsequent time step. This characteristic of HMMs takes the autocorrelation of temperature data and leverages it to improve group estimation certainty and accuracy. 
 
 #References
