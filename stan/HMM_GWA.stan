@@ -59,12 +59,12 @@ transformed parameters {
       if(d[t] == 1){
         //Air
         mu[1]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
-        season[1]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi()))*sigma[site[t],2];
+        season[1]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi())+2)*sigma[site[t],2];
         unalpha_tk[t,1]= log(0.5)+ normal_lpdf(y[t]| mu[1], season[1]);
 
         //Water
         mu[2]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
-        season[2]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi()))*sigma[site[t],1];
+        season[2]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi())+2)*sigma[site[t],1];
         unalpha_tk[t,2]= log(0.5)+ normal_lpdf(y[t]| mu[2], season[2]);
       }
       else {
@@ -75,13 +75,13 @@ transformed parameters {
               if(j == 1){
                 //Air
                 mu[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
-                season[j]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi()))* sigma[site[t],2];
+                season[j]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi())+2)* sigma[site[t],2];
                 accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+ normal_lpdf(y[t]| mu[j], season[j]);
               }
               if(j == 2){
                 //Water
                 mu[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
-                season[j]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi()))* sigma[site[t],1];
+                season[j]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi())+2)* sigma[site[t],1];
                 accumulator[i]= unalpha_tk[t-1,i] + log(A_ij[i,j]) +
                                  normal_lpdf(y[t]| mu[j], season[j]);
               }
@@ -104,15 +104,15 @@ model {
     //Mean water temperature
       m_alpha_w ~ normal(.1,.5);
       b_alpha_w ~ normal(1,1);
-      sigma_alpha_w ~ normal(.1,.5);
+      sigma_alpha_w ~ student_t(3,.5,1);
     //Water temperature amplitude
-      sigma_A ~ normal(.1,.2);
+      sigma_A ~ student_t(3,.5,1);
     //Water amplitude variance
-      mu_sigma_Water ~ normal(1,1);
-      sigma_Water ~ normal(1,1);
+      mu_sigma_Water ~ student_t(3,1,1);
+      sigma_Water ~ student_t(3,1,1);
     //Air amplitude variance
-      mu_sigma_Air ~ normal(2,1);
-      sigma_Air ~ normal(1,1);
+      mu_sigma_Air ~ student_t(3,2,1);
+      sigma_Air ~ student_t(3,1,1);
 
   // Local Priors
     // Prior of temperature alpha parameter.
@@ -124,8 +124,8 @@ model {
     A[,2] ~ normal(air_A, 2);
 
     // Model tau
-    tau_est[,1] ~ normal(tau,.05);
-    tau_est[,2] ~ normal(tau,.05);
+    tau_est[,1] ~ normal(tau,.1);
+    tau_est[,2] ~ normal(tau,.1);
 
     // Remaining Variance Priors
     sigma[,1] ~ student_t(3,1,1);
@@ -186,13 +186,13 @@ generated quantities {
             if(j == 1) {
               //Air
               mu_gen[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
-              season_gen[j]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi()))* sigma[site[t],2];
+              season_gen[j]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi())+2)* sigma[site[t],2];
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+ normal_lpdf(y[t]| mu_gen[j], season_gen[j]);
             }
             if(j == 2){
               //Water
               mu_gen[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
-              season_gen[j]= exp(cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi()))* sigma[site[t],1];
+              season_gen[j]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi())+2)* sigma[site[t],1];
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+ normal_lpdf(y[t]| mu_gen[j], season_gen[j]);
             }
           }
