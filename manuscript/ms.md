@@ -153,7 +153,67 @@ The simulted data offer the advantage of having known and estimated source value
 
 #Results
 
+*Simulation*
+
+Our HMM's temperature source estimation was strongly coherent with the known source in our simulated data, demonstrating an overal error rate of 0.44%. The error rate varied by site ranging as high as 1.64% with a median error rate of 0.27% and encouragingly the most common error rate was 0%. In other words, the highest error rate mislabeled 6 of the 365 days but typically only 1 day was mislabeled. 
+
+\begin{landscape}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=9in]{../images/Prob_Plot.pdf}
+	\caption{Climate}
+\label{fig:1}
+\end{figure}
+
+\end{landscape}
+
+Our certainty in the source of temperature changed seasonally with strong probabilities during the summer and winter months, with weaker probabilities during the fall and spring (Figure $\ref{fig:1}$). In fact, errors exclusively occurred at the intersection of the two states (Figure $\ref{fig:2}$), during the period of seasonal transition when air and water temperatures are very similar. 
+
+\begin{landscape}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=9in]{../images/Error_Plot.pdf}
+	\caption{Climate}
+\label{fig:2}
+\end{figure}
+
+\end{landscape}
+
+On average we were slightly more likely to make a type I error and label air data as water than a type II error, labeling water data as air (Figure $\ref{fig:3}$). In fact, 56% of errors were type I (*n*=18) while only 44% were type II (*n*=14). By increasing our certainty boundary for water above 50% our type I errors declined while type II errors increased exponentially (Figure $\ref{fig:3}$). By adjusting our certainty limit to 87.8% we can nearly eliminate type I errors (*n*=1), at the cost of tripling type II errors (*n*=41). Without the certainty adjstment, the absolute value type I errors were never greater than 4 and type II errors were never greater than 2 across sites. 
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=6.5in]{../images/ErrorType_Plot.pdf}
+	\caption{Climate }
+\label{fig:3}
+\end{figure}
+
+The global models were able to identify the true $\alpha_{w}$ and $A_{w}$ values among sites, as indicated by the close proximity of the data to the 1:1 line (Figure $\ref{fig:4}$).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=6.5in]{../images/Global_Plot.pdf}
+	\caption{Climate }
+\label{fig:4}
+\end{figure}
+
+*Thompson River*
+
 #Discussion
+
+During the fall and spring when state models overlap, the water state was often prefered even when the known source was air, leading to a small type I error bias. 
+
+Are errors when the states overlap in the fall and spring a concern? Discuss... 
+
+Global Model: Overcame bias introduced by priors. Visually there was some indication that lower values may be under-estimated and larger values over-estimated. Bias towards water temperature during overlap may be because of narrower uncertainty bands or global model contributions to the water states likliehood.
+
+Simulated data under logistic curve but the HMM uses a log transformation. Discuss the jacobian adjustement.
+
+Higher order markov model may clean-up the mislabled data the intersection.
+
+Making the state models a combination of sine and cosine curves may help with asymatry in the real data.
 
 Model limited to northern sites untill the response variable in equation 7 can be logit transformed and the jacobian adjustement added to the models posterior. Also, $A_{w}$ is expected to decrease as we near the equator and leave locations where the air temperature dips below freezing for significant portions of the year. Probably good for most of North America but less useful in low latitudes and altitudes.
 
