@@ -697,16 +697,27 @@ cf2 = broom::tidy(mod, pars = c("alpha_a","alpha_w"), "median") %>%
 
 cf = rbind(cf1,cf2) %>% spread(key = coef, value = estimate)
 
-#Mean water temperature real vs. estimate
-plot(df$coefs$water_meanT, cf[cf$model == 1,"alpha_w"], xlim = c(0,10), ylim = c(0,10))
-#text(df$coefs$water_meanT, cf[cf$model == 1,"alpha"], labels = cf[cf$model == 1,"site"], pos = 1)
-abline(0,1)
-points(df$coefs$water_meanT, inits[[1]]$alpha_water, col = "red")
-#Water temperature amplitude real vs. estimate
-plot(df$coefs$water_A, cf[cf$model == 1,"A"], xlim = c(0,10), ylim = c(0,10))
-#text(df$coefs$water_A, cf[cf$model == 1,"A"], labels = cf[cf$model == 1,"site"], pos = 1)
-abline(0,1)
-points(df$coefs$water_A, inits[[1]]$A[,1], col = "red")
+#Gather and plot global priors and estimates.
+global =data.frame(observed = c(df$coefs$water_meanT,df$coefs$water_A),
+                   estimated = c(cf[cf$model == 1,"alpha_w"], cf[cf$model == 1,"A"]),
+                   prior = c(inits[[1]]$alpha_water,inits[[1]]$A[,1]),
+                   parameter = c(rep("alpha[w]",max(cf$site)), rep("A[w]",max(cf$site))))
+
+p = ggplot(global, aes(observed, estimated)) +
+  geom_point(col = "#45062e", shape = 19, size = .8) +
+  geom_point(aes(observed, prior),shape = 1, col = "#2b6aff", size = 1) +
+  geom_abline(intercept = 0, slope = 1, linetype = 2, size = .3) +
+  ggthemes::theme_tufte() +
+  theme(strip.text = element_text(size=10),
+        axis.text = element_text(size = 8), 
+        axis.title = element_text(size = 9)) +
+  labs(x = expression("Simulated Temperature ("*degree*"C)"), 
+       y = expression("Estimated Temperature ("*degree*"C)")) +
+  facet_wrap(~parameter, labeller = label_parsed)
+ggsave(filename = "Global_Plot.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 7.5, height = 3.5, units = "in", device = "pdf")
+
+
+#ORGANIZE HMM RESULTS
 
 #Mean water temperature fit.
 temp = cf %>% filter(model == 1) %>% left_join(df$daily, ., by = "site") %>% 
@@ -755,13 +766,41 @@ df2 = xi_est %>% group_by(day) %>% filter(median == max(median)) %>%
   arrange(day) %>% bind_cols(temp,.) %>% select(-variable, -day) %>% 
   mutate(err = if_else(source == est_source, 1,19))
 
+perc = seq(.5,.99,.001)
+typeI = vector(mode = "numeric", length = length(perc)) 
+typeII = vector(mode = "numeric", length = length(perc)) 
+count = 1
+for(i in perc){
+  df2$certainty = df2$est_source
+  df2[df2$median<i & df2$est_source=="water","certainty"] = "uncertain"
+  typeI[count] = sum(df2$source[df2$certainty=="water"]!="water")
+  typeII[count] = sum(df2$source[df2$certainty!="water"]=="water")
+  df2$certainty = df2$est_source
+  count=count+1
+}
+cert = data.frame(percent = perc, typeI, typeII) %>% gather(data = ., key = errorType, value = error, typeI, typeII)
+
+p = ggplot(cert, aes(percent*100,error,col=errorType)) + 
+  geom_line() + 
+  scale_y_log10() +
+  scale_color_manual(values = c("#45062e","#2b6aff"),breaks = c("typeI","typeII"), labels = c("type I","type II")) +
+  ggthemes::theme_tufte() +
+  theme(legend.direction = "horizontal", legend.position = "top",
+        strip.text = element_text(size=10),
+        axis.text = element_text(size = 8), 
+        legend.title = element_blank()) +
+  labs(y = "Number of Errors", 
+       x = "Water Certainty Cutoff (%)")
+ggsave(filename = "ErrorType_Plot.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 7.5, height = 3.5, units = "in", device = "pdf")
+
+df2$certainty = df2$est_source
+df2[df2$median<.875 & df2$certainty=="water","certainty"] = "uncertain"
 percent_error = df2 %>% group_by(site) %>%
   do({
-    #if(.$site == 2)browser()
     n_water = sum(.$source == "water")
     n_AG = sum(.$source != "water")
-    error1 = round(sum(.$source[.$est_source=="water"]!="water")/n_AG*100)
-    error2 = round(sum(.$source[.$est_source!="water"]=="water")/n_water*100)
+    error1 = round(sum(.$source[.$certainty=="water"]!="water")/n_AG*100)
+    error2 = round(sum(.$source[.$certainty!="water"]=="water")/n_water*100)
     data.frame(n_water, n_AG, error1, error2,
       x_pos = min(df2$time),
       y_pos = max(df2$temperature)
@@ -769,7 +808,6 @@ percent_error = df2 %>% group_by(site) %>%
   }) %>% 
   mutate(label = paste("type I: ",as.character(error1),"% of ",as.character(n_AG)," -- type II: ",as.character(error2),"% of ",as.character(n_water),sep=""))
 
-df2[df2$median<.95,"est_source"] = "uncertain"
 
 labels = c("1" = percent_error$label[1],
            "2" = percent_error$label[2],
@@ -816,11 +854,11 @@ p = ggplot(data = df1) +
 ggsave(filename = "Prob_Plot.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "pdf")
 
 p = ggplot(data = df2, aes(time,temperature)) +
-  #geom_ribbon(aes(time, ymin = lower_w, ymax = upper_w), alpha = .3, fill = "#5b0982") +
-  #geom_ribbon(aes(time, ymin = lower_a, ymax = upper_a), alpha = .2, fill = "#7eb795") +
-  geom_point(aes(color = est_source), size = 0.5) +
-  #geom_line(aes(time, mean_w), size = .3) +
-  #geom_line(aes(time, mean_a), size = .3) +
+  geom_ribbon(aes(time, ymin = lower_w, ymax = upper_w), alpha = .3, fill = "#5b0982") +
+  geom_ribbon(aes(time, ymin = lower_a, ymax = upper_a), alpha = .2, fill = "#7eb795") +
+  geom_point(aes(color = certainty), size = 0.5) +
+  geom_line(aes(time, mean_w), size = .3) +
+  geom_line(aes(time, mean_a), size = .3) +
   geom_rug(data = filter(df2, err == 19), aes(time, temperature), sides = "b") +
   scale_color_manual(values = c("water" = "#2b6aff", "air" = "#ffc021", "uncertain" = "#45062e")) +
   geom_hline(yintercept = 0, size = .2, linetype = 3) +
@@ -831,7 +869,7 @@ p = ggplot(data = df2, aes(time,temperature)) +
         strip.text = element_text(size=8),
         axis.text = element_text(size = 8)) + 
   scale_x_datetime(date_breaks = "3 month", date_labels = "%b") +
-  guides(color = guide_legend(title.position = "top")) +
+  guides(color = guide_legend(title.position = "top", title.hjust = 1.4)) +
   facet_wrap(~site, labeller = as_labeller(labels)) +
   geom_text(data = percent_error, aes(x = x_pos, y = y_pos, label = site), hjust = "left", size = 2.3)
 ggsave(filename = "Error_Plot.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "pdf")
