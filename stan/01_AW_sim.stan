@@ -13,10 +13,10 @@ model {
   alpha ~ normal(0,10);
   A ~ lognormal(log(16), .4);
   tau ~ beta(10,10);
-  sigma ~ student_t(3,.75,1);
+  sigma ~ student_t(3,1,2);
 
   // Model
   for (t in 2:N) {
-    y[t] ~ normal(alpha + A*cos(2*pi()*t/N + tau*pi()), (cos(2*pi()*t/N + tau*pi())+2)*sigma);
+    y[t] ~ student_t(3, alpha + A*cos(2*pi()*t/N + tau*pi()), sigma);
   }
 }

@@ -39,7 +39,7 @@ parameters {
   vector[S] alpha_a;                      // Mean annual air temperature
   vector<lower=0>[S] alpha_w;             // Mean annual water temperature
   positive_ordered[2] A[S];               // Annual temperature amplitude
-  vector[2] tau_est[S];  // Seasonal location parameter
+  ordered[2] tau_est[S];  // Seasonal location parameter
   positive_ordered[2] sigma[S];           // Seasonal variance parameter
 }
 
@@ -58,14 +58,14 @@ transformed parameters {
       // initial estimate
       if(d[t] == 1){
         //Air
-        mu[1]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
-        season[1]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi())+2)*sigma[site[t],2];
-        unalpha_tk[t,1]= log(0.5)+ normal_lpdf(y[t]| mu[1], season[1]);
+        mu[1]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
+        season[1]= sigma[site[t],2];
+        unalpha_tk[t,1]= log(0.5)+ student_t_lpdf(y[t]|3, mu[1], season[1]);
 
         //Water
-        mu[2]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
-        season[2]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi())+2)*sigma[site[t],1];
-        unalpha_tk[t,2]= log(0.5)+ normal_lpdf(y[t]| mu[2], season[2]);
+        mu[2]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
+        season[2]= sigma[site[t],1];
+        unalpha_tk[t,2]= log(0.5)+ student_t_lpdf(y[t]|3, mu[2], season[2]);
       }
       else {
         for (j in 1:K) {    // j = current (t) or transition state column.
@@ -74,16 +74,16 @@ transformed parameters {
                             // belief state + transition prob + local evidence at t
               if(j == 1){
                 //Air
-                mu[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
-                season[j]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi())+2)* sigma[site[t],2];
-                accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+ normal_lpdf(y[t]| mu[j], season[j]);
+                mu[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
+                season[j]= sigma[site[t],2];
+                accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+ student_t_lpdf(y[t]|3, mu[j], season[j]);
               }
               if(j == 2){
                 //Water
-                mu[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
-                season[j]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi())+2)* sigma[site[t],1];
+                mu[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
+                season[j]= sigma[site[t],1];
                 accumulator[i]= unalpha_tk[t-1,i] + log(A_ij[i,j]) +
-                                 normal_lpdf(y[t]| mu[j], season[j]);
+                                 student_t_lpdf(y[t]|3, mu[j], season[j]);
               }
           }
           unalpha_tk[t, j] = log_sum_exp(accumulator);
@@ -124,8 +124,8 @@ model {
     A[,2] ~ normal(air_A, 2);
 
     // Model tau
-    tau_est[,1] ~ normal(tau,.1);
-    tau_est[,2] ~ normal(tau,.1);
+    tau_est[,1] ~ normal(tau-0.01,.1);
+    tau_est[,2] ~ normal(tau+0.01,.1);
 
     // Remaining Variance Priors
     sigma[,1] ~ student_t(3,1,1);
@@ -185,15 +185,17 @@ generated quantities {
                             // backwards t + transition prob + local evidence at t
             if(j == 1) {
               //Air
-              mu_gen[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
-              season_gen[j]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi())+2)* sigma[site[t],2];
-              accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+ normal_lpdf(y[t]| mu_gen[j], season_gen[j]);
+              mu_gen[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
+              season_gen[j]= sigma[site[t],2];
+              accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
+                                 student_t_lpdf(y[t]|3, mu_gen[j], season_gen[j]);
             }
             if(j == 2){
               //Water
-              mu_gen[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
-              season_gen[j]= (cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi())+2)* sigma[site[t],1];
-              accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+ normal_lpdf(y[t]| mu_gen[j], season_gen[j]);
+              mu_gen[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
+              season_gen[j]= sigma[site[t],1];
+              accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
+                                student_t_lpdf(y[t]|3, mu_gen[j], season_gen[j]);
             }
           }
           logbeta[t-1,j] = log_sum_exp(accumulator);
@@ -208,17 +210,10 @@ generated quantities {
   { // forward-backward algorithm log p(z_t = j | y_{1:T})
     for(t in 1:N) {
       loggamma[t] = alpha_tk[t] .* beta[t];
-      if(sum(loggamma[t])==0)
-        loggamma[t] = alpha_tk[t];
     }
 
     for(t in 1:N){
       gamma[t] = normalize(loggamma[t]);
-      for(i in 1:K){
-        if(is_inf(gamma[t,i]) || is_nan(gamma[t,i])){
-          print("t: ",t," log gamma: ",loggamma[t]," beta: ",beta[t]," alpha_tk: ",alpha_tk[t]," logbeta: ",logbeta[t]);
-        }
-      }
     }
   } //forward-backward
 }
