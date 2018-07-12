@@ -67,11 +67,11 @@ where a cosine curve capturing the seasonal ocilation of temperature ($y_{t}$) i
 
 where $\gamma$ is the number of observations per cycle and $d_{t}$ the integer location of observation $t$ in the cycle. We include a seasonal adjustment in $\tau$ to shift the cosine curve from the default peak value of 1 at the origin to the point in the cycle where temperature observations begin. 
 
-The variance around the mean temperature is a distinguishing feature between annual air and water temperature cycles. In both cases the variance is positive adjusted (i.e.+2), allowed to change with the mean and is centered on zero with independant scaling factors estimated in sigma ($\sigma$).
+The variance around the mean temperature is a distinguishing feature between annual air and water temperature cycles. In both states the variance is allowed to exponentially change with the mean and is centered on zero with independant scaling factors estimated in sigma ($\sigma$).
 
 \begin{linenomath*}
 \begin{equation}
-	f(\mathrm{S}_{t}) = (\cos(2\pi\omega + \tau_{z_{w,a}}\pi)+2)\sigma_{z_{w\prec a}}  \label{eq6}
+	f(\mathrm{S}_{t}) = \exp(\cos(2\pi\omega + \tau_{z_{w,a}}\pi))\sigma_{z_{w\prec a}}  \label{eq6}
 \end{equation}
 \end{linenomath*}
 
@@ -203,6 +203,11 @@ The global models were able to identify the true $\alpha_{w}$ and $A_{w}$ values
 
 #Discussion
 
+In this work we demonstrate how a well defined and articulated HMM can probabilistically seperate water and air temperature signals within a time series, thereby greatly reducing the effort required of humans to quality control stream temperature data. Equally important is the ability for the model to leverage large amounts of data collected over a variety of locations to improve temperature source esimtation locally. This type of big data synthesis is relatively easily conducted by computers and nearly impossible for any one human to complete in a reasonable amount of time. The largest benefit of this heirarchical approach is the degree to which subjectivity is reduced in the data cleaning process. No doubt, humans are masters at detecting patterns in data and making causal connections but this strength can also be a weakness where we inconsistently apply our pattern recognition and reasoning leading to widely variable results.
+
+Despite the power and objectivity of our model, we acknowledge there are limitations to this approach and do not believe humans should be altogether eliminated from the data cleaning process. As we demonstrate in our simulated data, error rates change as we adjust the models certainty that the data captures water rather than air temperatures. This finding suggests a mechanism by which researchers and data managers can contribute to the data cleaning processes in a meaningful but less work intensive way. By adjusting the certainty requirements above 50% we rapidly decrease the frequency of type I errors while initially only small gains in type II errors. The cost of the incidental elimination of water data versus the retention of air data is largely subjective and dependant on the needs of the research. Often temperature data are summarized such that the incidental air temperature datapoint is largely obfuscated in any subsequent analysis while the gains of having more complete data that fully describe a period of time lead to larger *n* and greater analysis power. Moreover, the impact of type I errors depends in part on whether or not the data happen to be seasonally coincident. Our simulation results demonstrate source estimation errors almost exclusively occur when state models overlap. If the expected water temperature is nearly identical to the air temperature, the ultimate source may be irrelavant. 
+
+
 During the fall and spring when state models overlap, the water state was often prefered even when the known source was air, leading to a small type I error bias. 
 
 Are errors when the states overlap in the fall and spring a concern? Discuss... 
@@ -212,8 +217,6 @@ Global Model: Overcame bias introduced by priors. Visually there was some indica
 Simulated data under logistic curve but the HMM uses a log transformation. Discuss the jacobian adjustement.
 
 Higher order markov model may clean-up the mislabled data the intersection.
-
-Making the state models a combination of sine and cosine curves may help with asymatry in the real data.
 
 Model limited to northern sites untill the response variable in equation 7 can be logit transformed and the jacobian adjustement added to the models posterior. Also, $A_{w}$ is expected to decrease as we near the equator and leave locations where the air temperature dips below freezing for significant portions of the year. Probably good for most of North America but less useful in low latitudes and altitudes.
 
