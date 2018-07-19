@@ -11,8 +11,8 @@ data {
   int<lower=1> K;                 // Number of hidden states
   real y[N];                      // Observations
   real<lower=0> d[N];             // Data points d in n
-  vector<lower=0,upper=1>[S] tau; // Define location of annual cycle
-  real<lower=0> n[S];             // Define the number of data points in a annual cycle
+  vector<lower=0,upper=2>[S] tau; // Define location of annual cycle
+  real<lower=0> n[N];             // Define the number of data points in a annual cycle
   vector<lower=0>[S] air_A;       // PRISM air annual temperature range (i.e., amplitude)
   vector[S] air_mean;             // PRISM air mean temperature estimate
   vector<lower=0>[S] water_A;     // Water amplitude approximation given air_A
@@ -58,12 +58,12 @@ transformed parameters {
       // initial estimate
       if(d[t] == 1){
         //Air
-        mu[1]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
+        mu[1]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],2]*pi());
         season[1]= sigma[site[t],2];
         unalpha_tk[t,1]= log(0.5)+ student_t_lpdf(y[t]|3, mu[1], season[1]);
 
         //Water
-        mu[2]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
+        mu[2]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
         season[2]= sigma[site[t],1];
         unalpha_tk[t,2]= log(0.5)+ student_t_lpdf(y[t]|3, mu[2], season[2]);
       }
@@ -74,14 +74,14 @@ transformed parameters {
                             // belief state + transition prob + local evidence at t
               if(j == 1){
                 //Air
-                mu[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
+                mu[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],2]*pi());
                 season[j]= sigma[site[t],2];
                 accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+
                                 student_t_lpdf(y[t]|3, mu[j], season[j]);
               }
               if(j == 2){
                 //Water
-                mu[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
+                mu[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
                 season[j]= sigma[site[t],1];
                 accumulator[i]= unalpha_tk[t-1,i] + log(A_ij[i,j]) +
                                  student_t_lpdf(y[t]|3, mu[j], season[j]);
@@ -186,14 +186,14 @@ generated quantities {
                             // backwards t + transition prob + local evidence at t
             if(j == 1) {
               //Air
-              mu_gen[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],2]*pi());
+              mu_gen[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],2]*pi());
               season_gen[j]= sigma[site[t],2];
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
                                  student_t_lpdf(y[t]|3, mu_gen[j], season_gen[j]);
             }
             if(j == 2){
               //Water
-              mu_gen[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[site[t]]+ tau_est[site[t],1]*pi());
+              mu_gen[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
               season_gen[j]= sigma[site[t],1];
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
                                 student_t_lpdf(y[t]|3, mu_gen[j], season_gen[j]);
