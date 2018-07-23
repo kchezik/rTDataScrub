@@ -155,66 +155,81 @@ The simulted data offer the advantage of having known and estimated source value
 
 *Simulation*
 
-Our HMM's temperature source estimation was strongly coherent with the known source in our simulated data, demonstrating an overal error rate of 0.44%. The error rate varied by site ranging as high as 1.64% with a median error rate of 0.27% and encouragingly the most common error rate was 0%. In other words, the highest error rate mislabeled 6 of the 365 days but typically only 1 day was mislabeled. 
+Our HMM's temperature source estimation was strongly coherent with the known source in our simulated data, demonstrating an overal error rate of 0.44% (*n* = 7300). The error rate varied by site ranging as high as 1.64% (*n* = 365) with a median error rate of 0.27% and encouragingly the most common error rate was 0%. In other words, the highest error rate mislabeled 6 of the 365 days but typically only 1 day was mislabeled.  
 
 \begin{landscape}
 
-\begin{figure}[H]
+\begin{figure}[h]
 \centering
-\includegraphics[width=9in]{../images/Prob_Plot.pdf}
-	\caption{Climate}
+\includegraphics[width=9in]{../images/Probs_Sim.pdf}
+	\caption{The daily probability that water is the thermal source of temperature readings for 20 simulated annual temperature profiles. Points indicate simulated mean daily air or water temperatures and are colored by the modelled probabilities of the source deriving from water. Lines indicate the estimated mean annual temperature curve and their associated variance estimate for air (green) and water (purple).}
 \label{fig:1}
 \end{figure}
 
 \end{landscape}
 
-Our certainty in the source of temperature changed seasonally with strong probabilities during the summer and winter months, with weaker probabilities during the fall and spring (Figure $\ref{fig:1}$). In fact, errors exclusively occurred at the intersection of the two states (Figure $\ref{fig:2}$), during the period of seasonal transition when air and water temperatures are very similar. 
+Overal the state models and uncertainty estimates for each site strongly fit the data even when sites were nearly or fully devoid of data describing the state (Fig. $\ref{fig:1}$). Our certainty in the source of temperature changed seasonally with strong probabilities during the summer and winter months, and weaker probabilities during the fall and spring (Figure $\ref{fig:1}$). In fact, errors exclusively occurred at the intersection of the two states (Figure $\ref{fig:2}$), during the period of seasonal transition when air and water temperatures are very similar.
 
 \begin{landscape}
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=9in]{../images/Error_Plot.pdf}
-	\caption{Climate}
+	\caption{Thermal source estimates for water (blue) and air (yellow) given temperature source probabilty cut-offs of 87.8\% and 50\% respectivley (see Fig. \ref{fig:1}) for 20 simlulated sites. The modelled mean annual temperature profiles are described by solid black lines with surrounding uncertainty for air (green) and water (purple). Uncertain data points (purple) indicate temperatures sources probability estimates of less than 50\% certainty for air and 87.8\% for water. Vertical lines along the x-axis (i.e., rug-plot) indicate the location of labeling errors.}
 \label{fig:2}
 \end{figure}
 
 \end{landscape}
 
-On average we were slightly more likely to make a type I error and label air data as water than a type II error, labeling water data as air (Figure $\ref{fig:3}$). In fact, 56% of errors were type I (*n*=18) while only 44% were type II (*n*=14). By increasing our certainty boundary for water above 50% our type I errors declined while type II errors increased exponentially (Figure $\ref{fig:3}$). By adjusting our certainty limit to 87.8% we can nearly eliminate type I errors (*n*=1), at the cost of tripling type II errors (*n*=41). Without the certainty adjstment, the absolute value type I errors were never greater than 4 and type II errors were never greater than 2 across sites. 
+On average we were slightly more likely to make a type I error and label air data as water than a type II error, labeling water data as air (Figure $\ref{fig:3}$). Indeed, 56% of errors were type I (*n*=18) while 44% were type II (*n*=14). By increasing our certainty boundary for water above 50% our type I errors declined exponentially while type II errors increased exponentially (Figure $\ref{fig:3}$). By adjusting our certainty limit to 87.8% we can nearly eliminate type I errors (*n*=1), at the cost of tripling type II errors (*n*=41). Without the certainty adjstment, the absolute value type I errors were never greater than 4 and type II errors were never greater than 2 at any given site. 
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=6.5in]{../images/ErrorType_Plot.pdf}
-	\caption{Climate }
+\includegraphics[width=6.5in]{../images/Error_Type.pdf}
+	\caption{Changing error type frequency with increasing water source certainty given 365 days at 20 simulated sites (\textit{n} = 7300). Type I error (purple line) indicates how often the model mistakenly labled air temperature as water while the type II error (blue) indicates how often water temperature data was mislabled air or uncertain.}
 \label{fig:3}
 \end{figure}
 
-The global models were able to identify the true $\alpha_{w}$ and $A_{w}$ values among sites, as indicated by the close proximity of the data to the 1:1 line (Figure $\ref{fig:4}$).
+The global models were able to identify the true $\alpha_{w}$ and $A_{w}$ values among sites, as indicated by the close proximity of the data to the 1:1 line (Figure $\ref{fig:4}$). This global model clearly contributes to water coefficient estimates as even sites with limited water data overcome their priors and shift near the 1:1 line. As a result, the global model increases the certainty of the water state and likely leads to the observed type I error bias when states intersect.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=6.5in]{../images/Global_Plot.pdf}
-	\caption{Climate }
+\includegraphics[width=6.5in]{../images/Global_Sim.pdf}
+	\caption{Simulated mean annual water temperature (\textbf{left}, $\alpha_{w}$) and temperature range (\textbf{right}, $A_{w}$) coefficient recovery by HMM. Pior estimates (open blue circles) and their subsequent fits (closed purple circles). The dotted line indicates 1:1 or perfect estimation of the known parameter by the HMM.}
 \label{fig:4}
 \end{figure}
 
-*Thompson River*
+<!--
+\begin{figure}[h]
+\centering
+\includegraphics[width=6.5in]{../images/Global_Obs.pdf}
+	\caption{}
+\label{fig:6}
+\end{figure}
+-->
 
 #Discussion
 
-In this work we demonstrate how a well defined and articulated HMM can probabilistically seperate water and air temperature signals within a time series, thereby greatly reducing the human effort required to quality control stream temperature data. Equally important is the ability for the model to leverage large amounts of data collected over a variety of locations to improve temperature source esimtation locally. This type of big data synthesis is relatively easily conducted by computers and nearly impossible for any one human to complete in a reasonable amount of time. The largest benefit of this heirarchical approach is the degree to which subjectivity is reduced in the data cleaning process. No doubt, humans are masters at detecting patterns in data and making causal connections but this strength can also be a weakness where we inconsistently apply our pattern recognition and reasoning leading to variable results.
+Unsupervised machine learning can reduce the subjectivity inherent in cleaning remotely sensed stream temperature data. Here we demonstrate how a well defined HMM can probabilistically seperate water and air temperature signals within a time series using raw temperature observations and a limited number of easily-obtained annual air temperature statistics. Going beyond the analytical scope of the typical person, our model draws on information across all available sites to provide additional support for local model fits thereby improving objectivity in temperature source categorization. Inconsistently applying pattern recognition is a human limitation that can lead to variable results. By probablisitically analyzing all available data, our HMM offers a tool to reduce variation in data quality.
+
+Despite the accuracy (99.66\%) of our HMM on simulated data (Fig. $\ref{fig:2}), categorizing the observed data in the Thompson River watershed suggests there are limitations to our approach (Fig. $\ref{fig:5}$).
+
+\begin{landscape}
+\begin{figure}[h]
+\centering
+\includegraphics[width=9in]{../images/Probs_Obs_Full.pdf}
+	\caption{(\textbf{Left}) Temperature observations for 10 sites in the Thompson River watershed in central British Columbia CA. Points are colored by their modelled probability of representing water temperatures. State models from which temperature source probability estimates were derived are repsented by air (green) and water (purple) ribbons with 50\% (dark) and 95\% (light) probability windows. (\textbf{Right}) }
+\label{fig:5}
+\end{figure}
+\end{landscape}
+
+
+the application of our HMM to our observed data in the Thompson River basin suggests our model 
 
 Despite the power and objectivity of our model, we acknowledge there are limitations to this approach and do not believe humans should be altogether eliminated from the data cleaning process. As we demonstrate in our simulated data, error rates change as we adjust our certainty thresholds. This suggests a mechanism by which researchers and data managers can contribute to the data cleaning processes in a meaningful but less work intensive way. By adjusting the certainty requirements above 50% we rapidly decrease the frequency of type I errors while initially leading to only small gains in type II errors. The cost of the incidental elimination of water data versus the retention of air data is largely subjective and dependant on the needs of the research. Often temperature data are summarized such that the incidental air temperature datapoint is largely obfuscated in any subsequent analysis while the gains of having more complete data that fully describe a period of time lead to larger *n* and greater analysis power. Moreover, the impact of type I errors depends in part on whether or not the data happen to be seasonally coincident. Our simulation results demonstrate source estimation errors almost exclusively occur when state models overlap. If the expected water temperature is nearly identical to the air temperature, the ultimate source may be irrelavant. By building our HMM in a bayesian framework, we fully acknowledge uncertainty and offer a tool for researchers to assess their studies needs and select the data with sufficient accuracy.
 
 Water and air temperatures are strongly correlated at a variety of time scales which limits the descriptive and predictive power of our HMM. Here the cosine curve ocillation captures much of the seasonal correlation from year to year but does not capture correlations at finer time scales (e.g., Fig. $\ref{fig:5}$). As mentioned in our simulation methods correlation in errors captures momentum where for instance if its warmer than usual today then it will likely be above average tomorrow. Typically this correlation would be captured in a moving average (MA) model where a proportion of the error in the previous time step(s) would be included in the subsequent mean estimate. We were unable to introduce a MA component to our HMM as we found the MA coefficient made the state models excessively flexible, complicating state change estimation. As a result we were unable to capture inter-annual variation and periods of momentum that deviate strongly from the seasonal curve. A solution to changing inter-annual variation would be to extend the amplitude and mean annual temperature variables to include unique estimates for each year at each site, weighted by an annual transition coefficient that mediated the change between years. Although this approach would more accurately describe the data, without a MA model we would still struggle to capture the daily correlation in the data. The approach we took here, which does not require the estimation of multiple new parameters was to assume the variation around the seasonal mean can be captured as extreme values under a *student t* distribution with limited degrees of freedom. In this way we ultimately estimate average inter-annual $\alpha$ and $A$ values for both state models for each site. Assuming stationarity in these coefficients over the long-term would be a mistake given the impact of climate change on global temperatures. As a generalization for the purpose of temperature cleaning, this simplifying assumption should largely meet the needs of this model. Once the erroneous data have been largely removed from the dataset, a *post hoc* anaylsis built on a traditional ARMA model and facilitate by the HMM coefficient estimates could be used to fill gaps in the time series.
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=5.5in]{../images/SingleObsSite_Smooth_ProbPlot.pdf}
-	\caption{Climate }
-\label{fig:5}
-\end{figure}
 
 The global models used in our HMM strongly faciliate accurate model fits when air or water temperature data are missing in a given dataset (e.g., Figs. $\ref{fig:1}$, $\ref{fig:2}$). As demonstrated, the global model overcame the coefficient piors in our simulation (Fig. $\ref{fig:4}$) and fit the known coefficient estimates very well. Furthermore, while our simulation was built using the logistic function, log transforming our mean response ($\alpha_{w}$) seems sufficient to capture the lower portion of the logistic curve. This simplification of our global model allowed us to estimate fewer parameters and linearize the model. Unfortunately, as mean annual air temperatures increase at lower latitudes the log transformation may lead to over-estimation of mean annual water temperatures ($\alpha_{w}$). A possible solution would be to *logit* transform the response ($\alpha_{w}$) thereby linearizing the logistic function, limiting parameter estimation and capturing the complete logistic curve. We did not utilize this transformation here because the data need to be scaled between 0 and 1 but the upper bound on mean annual stream temperatures is unknown. A similar limitation occurs in the global model governing stream temperature amplitude ($A_{w}$) in equation $\ref{eq8}$. We expect that as stream temperatures are no longer lower bound by 0$\text{\textdegree}$C at lower latitude and elevation, that the seasonal amplitude ($A$) will no longer reflect the mean annual water temperature ($\alpha_{w}$). As such these global models limit this HMM to locations that experience a period of freezing in their annual temperature cycle.
 
