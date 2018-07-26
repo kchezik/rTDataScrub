@@ -21,13 +21,10 @@ files = dir()[grep(dir(), pattern = "climateBC*")]
 df_C = data.frame()
 for(i in files){
   dat = read_csv(i) %>% select(ID1, MAT, TD) %>% distinct() %>%
-    group_by(ID1) %>% summarize(MAT = mean(MAT), TD = mean(TD)) %>%
+    group_by(ID1) %>% summarize(MAT = mean(MAT), TD = mean(TD/2)) %>%
     mutate(year = as.numeric(stringr::str_extract(i, pattern = "\\d+")))
   df_C = bind_rows(df_C, dat)
 }
-
-ggplot(df_C, aes(ID1, MAT, color = as.character(year))) + geom_point()
-ggplot(df_C, aes(ID1, TD, color = as.character(year))) + geom_point()
 
 df_C = df_C %>% rename(site = ID1, air_mean = MAT, air_A = TD, year = year)
 

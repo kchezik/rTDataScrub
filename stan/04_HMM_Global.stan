@@ -2,6 +2,19 @@ functions {
   vector normalize(vector x) {
     return x / sum(x);
   }
+
+// Creates a cosine curve upper bound by zero during the spring ...
+// ... to account for hysteresis in the water temperature curve ...
+// ... due to snow melt cooling the stream. The values of this
+// ... cosine curve is modified by a spring snow effect coefficient.
+
+  real stream_snow(real n, real d, real tau) {
+    real d_low = (n/2)-(tau * (n/2));
+    real d_high = n-(tau * (n/2));
+    if(d>d_low && d<d_high) {
+      return (cos(2*pi()*(d-d_low)/(n/2))-1);
+    } else return 0;
+  }
 }
 
 data {
@@ -10,7 +23,7 @@ data {
   int<lower=1> site[N];           // Site ID
   int<lower=1> K;                 // Number of hidden states
   real y[N];                      // Observations
-  real<lower=0> d[N];             // Data points d in n
+  real<lower=0> d[N];             // Data point d in n
   vector<lower=0,upper=2>[S] tau; // Define location of annual cycle
   real<lower=0> n[N];             // Define the number of data points in a annual cycle
   vector<lower=0>[S] air_A;       // PRISM air annual temperature range (i.e., amplitude)
@@ -29,24 +42,24 @@ parameters {
   real b_alpha_w;                 // Mean water temperature at mean air of 0ºC
   real<lower=0> m_alpha_w;        // Change in mean water temperature with 1ºC increase in mean air T
   real<lower=0> sigma_alpha_w;    // Mean water temperature variance
-  //real<lower=0> sigma_A;          // Water amplitude variance
+  //real<lower=0> sigma_A;        // Water amplitude variance
   real<lower=0> mu_sigma_Water;   // Mean water temperature variance across sites
   real<lower=0> sigma_Water;      // Variance around the global mean water temperature variance
   real<lower=0> mu_sigma_Air;     // Mean air temperature variance across sites
   real<lower=0> sigma_Air;        // Variance around the global mean air temperature variance
 
   // Seasonal Temperature Model for Air and Water
-  vector[S] alpha_a;                      // Mean annual air temperature
   vector<lower=0>[S] alpha_w;             // Mean annual water temperature
-  positive_ordered[2] A[S];               // Annual temperature amplitude
+  vector<lower=0>[S] A;                   // Annual temperature amplitude
   ordered[2] tau_est[S];                  // Seasonal location parameter
+  vector<lower=0,upper=1>[S] snow_w;      // Snow effect parameter
   positive_ordered[2] sigma[S];           // Seasonal variance parameter
 }
 
 transformed parameters {
   // Water model temporary estimates of mean and variance
   real mu[2];     // mean temperature
-  real season[2]; // seasonal error term
+  real spring;    // spring effect on water
 
   // log probabilities
   vector[K] unalpha_tk[N];
@@ -57,15 +70,14 @@ transformed parameters {
     for (t in 1:N) {
       // initial estimate
       if(d[t] == 1){
-        //Air
-        mu[1]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
-        season[1]= sigma[site[t],2];
-        unalpha_tk[t,1]= log(0.5)+ student_t_lpdf(y[t]|3, mu[1], season[1]);
-
         //Water
-        mu[2]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],2]*pi());
-        season[2]= sigma[site[t],1];
-        unalpha_tk[t,2]= log(0.5)+ student_t_lpdf(y[t]|3, mu[2], season[2]);
+        mu[1]= alpha_w[site[t]]+ A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
+        spring = stream_snow(n[t],d[t],tau_est[site[t],1]);
+        unalpha_tk[t,1]= log(0.5)+ student_t_lpdf(y[t]|3, mu[1]+ spring*snow_w[site[t]], sigma[site[t],1]);
+
+        //Air
+        mu[2]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],2]*pi());
+        unalpha_tk[t,2]= log(0.5)+ student_t_lpdf(y[t]|3, mu[2], sigma[site[t],2]);
       }
       else {
         for (j in 1:K) {    // j = current (t) or transition state column.
@@ -73,18 +85,17 @@ transformed parameters {
                             // Murphy (2012) Eq. 17.48
                             // belief state + transition prob + local evidence at t
               if(j == 1){
-                //Air
-                mu[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
-                season[j]= sigma[site[t],2];
-                accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+
-                                student_t_lpdf(y[t]|3, mu[j], season[j]);
+                //Water
+                mu[j]= alpha_w[site[t]]+ A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
+                spring = stream_snow(n[t],d[t],tau_est[site[t],j]);
+                accumulator[i]= unalpha_tk[t-1,i] + log(A_ij[i,j]) +
+                                 student_t_lpdf(y[t]|3, mu[j]+ spring*snow_w[site[t]], sigma[site[t],j]);
               }
               if(j == 2){
-                //Water
-                mu[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],2]*pi());
-                season[j]= sigma[site[t],1];
-                accumulator[i]= unalpha_tk[t-1,i] + log(A_ij[i,j]) +
-                                 student_t_lpdf(y[t]|3, mu[j], season[j]);
+                //Air
+                mu[j]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
+                accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+
+                                student_t_lpdf(y[t]|3, mu[j], sigma[site[t],j]);
               }
           }
           unalpha_tk[t, j] = log_sum_exp(accumulator);
@@ -117,26 +128,27 @@ model {
 
   // Local Priors
     // Prior of temperature alpha parameter.
-    alpha_w ~ normal(water_mean, 3);
-    alpha_a ~ normal(air_mean, 2);
+      alpha_w ~ normal(water_mean, 3);
 
     // Model of temperature amplitude parameter.
-    A[,1] ~ normal(water_A, 3);
-    A[,2] ~ normal(air_A, 2);
+      A ~ normal(water_A, 3);
 
     // Model tau
-    tau_est[,1] ~ normal(tau-0.07,.03);
-    tau_est[,2] ~ normal(tau,.03);
+      tau_est[,1] ~ normal(tau-0.01,.03);
+      tau_est[,2] ~ normal(tau+0.01,.03);
+
+    // Spring snow adjustment
+      snow_w ~ normal(.5,.5);
 
     // Remaining Variance Priors
-    sigma[,1] ~ student_t(3,1.5,2);
-    sigma[,2] ~ student_t(3,3,2);
+      sigma[,1] ~ student_t(3,1.5,2);
+      sigma[,2] ~ student_t(3,3,2);
 
   // Global mean temperature, amplitude and variance models
-  log(alpha_w) ~ normal(b_alpha_w + m_alpha_w*alpha_a, sigma_alpha_w);   //mean
-  //A[,1] ~ normal(alpha_w, sigma_A);                                      //amplitude
-  sigma[,2] ~ normal(mu_sigma_Air, sigma_Air);                           //air
-  sigma[,1] ~ normal(mu_sigma_Water, sigma_Water);                       //water
+    log(alpha_w) ~ normal(b_alpha_w + m_alpha_w*air_mean, sigma_alpha_w);  //mean
+    //A[,1] ~ normal(alpha_w, sigma_A);                                    //amplitude
+    sigma[,2] ~ normal(mu_sigma_Air, sigma_Air);                           //air
+    sigma[,1] ~ normal(mu_sigma_Water, sigma_Water);                       //water
 
   // Return log probabilities for each model.
   if(prior == 1){
@@ -147,8 +159,8 @@ model {
 
 generated quantities {
   // Water model temporary estimates of mean and variance
-  real mu_gen[2]; // mean temperature
-  real season_gen[2]; // seasonal error term
+  real mu_gen[2];     // mean temperature
+  real spring_gen;    // spring snow effect
 
   // forward filtered estimates
   vector[K] alpha_tk[N];
@@ -185,18 +197,17 @@ generated quantities {
                             // Murphy (2012) Eq. 17.58
                             // backwards t + transition prob + local evidence at t
             if(j == 1) {
-              //Air
-              mu_gen[j]= alpha_a[site[t]]+ A[site[t],2]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
-              season_gen[j]= sigma[site[t],2];
+              //Water
+              mu_gen[j]= alpha_w[site[t]]+ A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
+              spring_gen = stream_snow(n[t],d[t],tau_est[site[t],j]);
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                                 student_t_lpdf(y[t]|3, mu_gen[j], season_gen[j]);
+                                student_t_lpdf(y[t]|3, mu_gen[j]+ spring_gen*snow_w[site[t]], sigma[site[t],j]);
             }
             if(j == 2){
-              //Water
-              mu_gen[j]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],2]*pi());
-              season_gen[j]= sigma[site[t],1];
+              //Air
+              mu_gen[j]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                                student_t_lpdf(y[t]|3, mu_gen[j], season_gen[j]);
+                                 student_t_lpdf(y[t]|3, mu_gen[j], sigma[site[t],j]);
             }
           }
           logbeta[t-1,j] = log_sum_exp(accumulator);

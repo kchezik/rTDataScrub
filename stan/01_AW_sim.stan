@@ -16,7 +16,7 @@ model {
   sigma ~ student_t(3,1,2);
 
   // Model
-  for (t in 2:N) {
+  for (t in 1:N) {
     y[t] ~ student_t(3, alpha + A*cos(2*pi()*t/N + tau*pi()), sigma);
   }
 }
