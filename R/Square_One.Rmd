@@ -45,7 +45,7 @@ create = function(A, AR, s_t, meanT, years = 1, tao, df = 3, sp_n=NA, snow=NA, s
   #Possible snow effect for water.
   if(source == "water"){
     #Align snow effect with adjusted observation period.
-    i = ceiling((365*24 - sp_n) - 182.5*tao); sn = cos(2*pi*1:sp_n/sp_n)-1; r = (N/years)-i-length(sn)
+    i = ceiling((365*24 - sp_n) - abs(182.5*tao)); sn = cos(2*pi*1:sp_n/sp_n)-1; r = (N/years)-i-length(sn)
     #Snow effect
     snow_adj = rep(c(rep(0,i),sn,rep(0,r)),years) * snow 
   }
@@ -75,10 +75,10 @@ generate = function(air_ends = F, air = F, years = 1, randomize = c(T,T), global
   latitude = rnorm(1,50,4) #45 to 60ºN with a mean of 50.
   
   #Air parameters. http://www-das.uwyo.edu/~geerts/cwx/notes/chap16/geo_clim.html
-  air_A = rnorm(1, .4*latitude, latitude*.02)/2 # Temperature range is latitude dependant.
+  air_A = rnorm(1, .45*latitude, latitude*.02)/2 # Temperature range is latitude dependant.
   air_AR = rbeta(n = 1, shape1 = 500, shape2 = 25)
-  air_meanT = 27-(latitude-16)*.65 + rnorm(1,0,.25)
-  
+  air_meanT = 27-(latitude-16)*.57 + rnorm(1,0,.25)
+ #.65 
   #Water parameters.
   water_meanT = rnorm(1,(global$alpha_max/(1+exp(-global$k*(air_meanT-global$m))))+global$b,0.1)
   
@@ -86,6 +86,7 @@ generate = function(air_ends = F, air = F, years = 1, randomize = c(T,T), global
   alpha_inf = 13.5
   if(water_meanT<alpha_inf) water_A = water_meanT + rnorm(1, 0, .1)
   else water_A = (alpha_inf - (water_meanT-alpha_inf)) + rnorm(1, 0, .1)
+  water_A = if_else(water_A>air_A, air_A-0.01, water_A)
   
   water_AR = rbeta(n = 1, shape1 = 400, shape2 = 20)
   
@@ -97,8 +98,8 @@ generate = function(air_ends = F, air = F, years = 1, randomize = c(T,T), global
   
   #Create Data.
   df = data.frame(
-    air= create(A=air_A, AR=air_AR, s_t=5, meanT=air_meanT, years=years, tao=tao+0.07, df=4),
-    water= create(A=water_A, AR=water_AR, s_t=20, meanT=water_meanT, years=years, tao=tao, df=10,
+    air= create(A=air_A, AR=air_AR, s_t=15, meanT=air_meanT, years=years, tao=tao+0.035, df = 7),
+    water= create(A=water_A, AR=water_AR, s_t=20, meanT=water_meanT, years=years, tao=tao-0.035, df=10,
                   sp_n = sp_n, snow = snow, source = "water"),
   
     # Add a time component so the data can be sampled.
@@ -141,7 +142,7 @@ generate = function(air_ends = F, air = F, years = 1, randomize = c(T,T), global
   if(air == T) fin = suppressWarnings(bind_rows(fin, airT))
   fin = arrange(fin, time)
   
-  cfs = data.frame(latitude, air_tao = tao-0.07, water_tao = tao,
+  cfs = data.frame(latitude, air_tao = tao+0.035, water_tao = tao-0.035,
                    alpha_max = global$alpha_max, 
                    k = global$k, b = global$b, 
                    aw_infl = global$m,
@@ -159,7 +160,7 @@ multi_site = function(n = 1, years = 1, air_ends = F, air = F, randomize = c(T,T
   for(i in 1:n){
     #Gather global model coefficients.
     global = alpha_est()
-    #Generate hourly data made from three soures, the air, the water and the saturated earth.
+    #Generate hourly data made from air and water sources.
     df = generate(air = air, air_ends = air_ends, 
                   randomize = randomize, years = years, global = global) 
     #Add site number and period in annual cycle.
@@ -173,12 +174,11 @@ multi_site = function(n = 1, years = 1, air_ends = F, air = F, randomize = c(T,T
   }
   #Rename lists
   dat = list("hourly" = ret$dat, "coefs" = ret$coefs)
-
   #Daily summary
   ret = ret$dat %>% mutate(time = lubridate::floor_date(time, unit = "day")) %>% 
     group_by(site, source, time) %>%
     summarize(temperature = mean(temperature)) %>% 
-    arrange(site, time) %>% ungroup() %>% group_by(site)
+    arrange(site, time)
   #Remove duplicate days due to rounding errors.
   dups = ret %>% group_by(site,time) %>% summarise(c = n()) %>% filter(c>1)
   del = vector(mode = "numeric",length = length(dups)/2); c=1
@@ -192,8 +192,8 @@ multi_site = function(n = 1, years = 1, air_ends = F, air = F, randomize = c(T,T
   } else dat$daily = ret
   
   #Add cycle length (`n`) and point in cycle (`d`).
-  dat$daily = dat$daily %>% group_by(site) %>% mutate(year = lubridate::year(time),
-                                                      d = yday(time - days(x=yday(time[1])-1))) %>% 
+  dat$daily = dat$daily %>% group_by(site) %>% 
+    mutate(year = lubridate::year(time), d = yday(time - days(x=yday(time[1])-1))) %>% 
     group_by(site, year) %>% mutate(n = n_init(time))
   
   #Add tau prior estimate and determine how many points are in an annual cycle.
@@ -233,8 +233,10 @@ create_inits = function(K = 2, A_ij = c(.9,.1,.1,.9), air_A, air_mean, chains = 
   A_ij = diag(K); A_ij = if_else(A_ij ==1, .9, .1/(K-1))
   init = list(A_ij = matrix(A_ij, nrow = K, ncol = K),
               b_alpha_w = 2, m_alpha_w = .5,
-              A = NA, alpha_w = if_else(air_mean>0,air_mean,2))
-  init$A = if_else(init$alpha_w<13.5, init$alpha_w, (27-init$alpha_w))
+              A = matrix(data = c(air_mean,air_A), nrow=length(air_A) , ncol=2),
+              alpha_w = if_else(air_mean>0,air_mean,2))
+  init$A[,1] = if_else(init$alpha_w<13.5, init$alpha_w, (27-init$alpha_w))
+  init$A[,1] = if_else(init$A[,1]>=init$A[,2], init$A[,2]-.5, init$A[,1])
   #Replicate single list over n chains
   inits = list()
   for(i in 1:chains){
@@ -595,7 +597,7 @@ Next we need to incorporate the hierarchical model into the HMM model and retrie
 
 ```{r Simulation Hierarchical HMM}
 #Create data for multiple sites.
-df = multi_site(n = 20, years = 2, air_ends = T, air = F, randomize = c(F,T))
+df = multi_site(n = 20, years = 1, air_ends = T, air = F, randomize = c(F,T))
 
 #Gather initial values.
 inits = create_inits(air_A = df$coefs$air_A, air_mean = df$coefs$air_meanT, chains = 4)
@@ -612,12 +614,13 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
                                  n = df$daily$n,
                                  air_A = df$coefs$air_A,
                                  air_mean = df$coefs$air_meanT,
-                                 water_A = inits[[1]]$A,
+                                 water_A = inits[[1]]$A[,1],
                                  water_mean = inits[[1]]$alpha_w,
                                  prior = 1),
-               pars = c("alpha_w","A","tau_est","snow_w","alpha_tk","gamma"),
-               init = inits, warmup = 500, iter = 1000, chains = 4, thin = 3,
-               control = list(adapt_delta = .9, max_treedepth = 12), save_warmup = F)
+               pars = c("alpha_w","A","tau_est","snow_w","alpha_tk","gamma",
+                        "b_alpha_w","m_alpha_w"),
+               init = inits, warmup = 200, iter = 500, chains = 4, thin = 1,
+               control = list(adapt_delta = .9, max_treedepth = 12), save_warmup = T)
 
 shinystan::launch_shinystan(mod)
 
@@ -627,9 +630,9 @@ cf = rstan::extract(mod, pars = c("alpha_w","A","tau_est","snow_w","alpha_tk","g
 
 #Site alpha and A summary/join with known values and priors
 alpha = data.frame(t(apply(cf$alpha_w, 2, `quantile`, probs = c(0.025,.25,0.5,.75,.975)))) %>% mutate(param = "alpha[w]")
-A = data.frame(t(apply(cf$A, 2, `quantile`, probs = c(0.025,.25,0.5,.75,.975)))) %>% mutate(param = "A[w]")
+A = data.frame(t(apply(cf$A[,,1], 2, `quantile`, probs = c(0.025,.25,0.5,.75,.975)))) %>% mutate(param = "A[w]")
 global = df$coefs %>% select(water_meanT, water_A) %>% gather(key = obs_param, value = observed) %>% select(-1)
-global = bind_rows(alpha,A) %>% rename(lower = X2.5., lower_mid = X25., fit = X50., upper_mid = X75., upper = X97.5.) %>% bind_cols(.,global) %>% mutate(prior = c(inits[[1]]$alpha_w, inits[[1]]$A))
+global = bind_rows(alpha,A) %>% rename(lower = X2.5., lower_mid = X25., fit = X50., upper_mid = X75., upper = X97.5.) %>% bind_cols(.,global) %>% mutate(prior = c(inits[[1]]$alpha_w, inits[[1]]$A[,1]))
 
 
 p = ggplot(global, aes(observed, fit)) + 
@@ -654,8 +657,8 @@ ggsave(filename = "Global_Sim.pdf", path = "~/Documents/rTDataScrub/images", plo
 fit = df$daily %>% mutate(row = 1:length(site)) %>% group_by(site,time) %>% do({
   filter_water = quantile(cf$alpha_tk[,.$row,1], probs = c(0.025,.25,0.5,.75,.975))
   smooth_water = quantile(cf$gamma[,.$row,1], probs = c(0.025,.25,0.5,.75,.975))
-  water = cf$alpha_w[,.$site] + cf$A[,.$site]*cos(2*pi*.$d/.$n + cf$tau_est[,.$site,1])
-  air = df$coefs$air_meanT[.$site] + df$coefs$air_A[.$site]*cos(2*pi*.$d/.$n + cf$tau_est[,.$site,2])
+  water = cf$alpha_w[,.$site] + cf$A[,.$site,1]*cos(2*pi*.$d/.$n + cf$tau_est[,.$site,1]*pi)
+  air = df$coefs$air_meanT[.$site] + df$coefs$air_A[.$site]*cos(2*pi*.$d/.$n + cf$tau_est[,.$site,2]*pi)
   temp = data.frame(t(c(quantile(water, probs = c(0.025,.25,0.5,.75,.975)),
                  quantile(air, probs = c(0.025,.25,0.5,.75,.975)),
                  filter_water, smooth_water)))
@@ -686,7 +689,7 @@ ggplot(error) +
   #geom_ribbon(aes(percent, ymin = fp_lower_mid, ymax = fp_upper_mid), alpha = .1) +
   geom_line(aes(percent,fp_fit,col=errorType), linetype = 1) + 
   geom_line(aes(percent,sp_fit,col=errorType), linetype = 2) + 
-  scale_y_log10() +
+  #scale_y_log10() +
   scale_color_manual(values = c("#45062e","#2b6aff"),breaks = c("typeI","typeII"), labels = c("type I","type II")) +
   ggthemes::theme_tufte() +
   theme(legend.direction = "horizontal", legend.position = "top",

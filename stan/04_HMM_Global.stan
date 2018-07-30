@@ -4,9 +4,9 @@ functions {
   }
 
 // Creates a cosine curve upper bound by zero during the spring ...
-// ... to account for hysteresis in the water temperature curve ...
-// ... due to snow melt cooling the stream. The values of this
-// ... cosine curve is modified by a spring snow effect coefficient.
+// ... to account for hysteresis (i.e., dampening) in the water ...
+// ... temperature curve caused by snow melt cooling the stream.
+// The values of this cosine curve are modified by a snow effect coefficient.
 
   real stream_snow(real n, real d, real tau) {
     real d_low = (n/2)-(tau * (n/2));
@@ -42,7 +42,7 @@ parameters {
   real b_alpha_w;                 // Mean water temperature at mean air of 0ºC
   real<lower=0> m_alpha_w;        // Change in mean water temperature with 1ºC increase in mean air T
   real<lower=0> sigma_alpha_w;    // Mean water temperature variance
-  //real<lower=0> sigma_A;        // Water amplitude variance
+  real<lower=0> sigma_A;          // Water amplitude variance
   real<lower=0> mu_sigma_Water;   // Mean water temperature variance across sites
   real<lower=0> sigma_Water;      // Variance around the global mean water temperature variance
   real<lower=0> mu_sigma_Air;     // Mean air temperature variance across sites
@@ -50,8 +50,8 @@ parameters {
 
   // Seasonal Temperature Model for Air and Water
   vector<lower=0>[S] alpha_w;             // Mean annual water temperature
-  vector<lower=0>[S] A;                   // Annual temperature amplitude
-  ordered[2] tau_est[S];                  // Seasonal location parameter
+  positive_ordered[2] A[S];               // Annual temperature amplitude
+  vector[2] tau_est[S];                  // Seasonal location parameter
   vector<lower=0,upper=1>[S] snow_w;      // Snow effect parameter
   positive_ordered[2] sigma[S];           // Seasonal variance parameter
 }
@@ -61,8 +61,10 @@ transformed parameters {
   real mu[2];     // mean temperature
   real spring;    // spring effect on water
 
+
   // log probabilities
   vector[K] unalpha_tk[N];
+
 
   { // Forward algorithm log p(z_t = j | x_{1:t})
     real accumulator[K];
@@ -71,7 +73,7 @@ transformed parameters {
       // initial estimate
       if(d[t] == 1){
         //Water
-        mu[1]= alpha_w[site[t]]+ A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
+        mu[1]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
         spring = stream_snow(n[t],d[t],tau_est[site[t],1]);
         unalpha_tk[t,1]= log(0.5)+ student_t_lpdf(y[t]|3, mu[1]+ spring*snow_w[site[t]], sigma[site[t],1]);
 
@@ -86,7 +88,7 @@ transformed parameters {
                             // belief state + transition prob + local evidence at t
               if(j == 1){
                 //Water
-                mu[j]= alpha_w[site[t]]+ A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
+                mu[j]= alpha_w[site[t]]+ A[site[t],j]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
                 spring = stream_snow(n[t],d[t],tau_est[site[t],j]);
                 accumulator[i]= unalpha_tk[t-1,i] + log(A_ij[i,j]) +
                                  student_t_lpdf(y[t]|3, mu[j]+ spring*snow_w[site[t]], sigma[site[t],j]);
@@ -94,7 +96,7 @@ transformed parameters {
               if(j == 2){
                 //Air
                 mu[j]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
-                accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+
+                accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,1])+
                                 student_t_lpdf(y[t]|3, mu[j], sigma[site[t],j]);
               }
           }
@@ -115,10 +117,10 @@ model {
   // Global Priors
     //Mean water temperature
       m_alpha_w ~ normal(.1,.5);
-      b_alpha_w ~ normal(log(4),2);
+      b_alpha_w ~ normal(4,2);
       sigma_alpha_w ~ student_t(3,0,1);
     //Water temperature amplitude
-      //sigma_A ~ student_t(3,0.5,1);
+      sigma_A ~ student_t(3,0.5,1);
     //Water amplitude variance
       mu_sigma_Water ~ student_t(3,1,1);
       sigma_Water ~ student_t(3,0,1);
@@ -131,11 +133,11 @@ model {
       alpha_w ~ normal(water_mean, 3);
 
     // Model of temperature amplitude parameter.
-      A ~ normal(water_A, 3);
+      A[,1] ~ normal(water_A, 3);
 
     // Model tau
-      tau_est[,1] ~ normal(tau-0.01,.03);
-      tau_est[,2] ~ normal(tau+0.01,.03);
+      tau_est[,1] ~ normal(tau-0.2,.03);
+      tau_est[,2] ~ normal(tau+0.2,.03);
 
     // Spring snow adjustment
       snow_w ~ normal(.5,.5);
@@ -144,11 +146,14 @@ model {
       sigma[,1] ~ student_t(3,1.5,2);
       sigma[,2] ~ student_t(3,3,2);
 
+  // Enforce order on water amplitude.
+    A[,2] ~ normal(air_A,0.01);
+
   // Global mean temperature, amplitude and variance models
     log(alpha_w) ~ normal(b_alpha_w + m_alpha_w*air_mean, sigma_alpha_w);  //mean
-    //A[,1] ~ normal(alpha_w, sigma_A);                                    //amplitude
-    sigma[,2] ~ normal(mu_sigma_Air, sigma_Air);                           //air
+    A[,1] ~ normal(alpha_w, sigma_A);                                      //amplitude
     sigma[,1] ~ normal(mu_sigma_Water, sigma_Water);                       //water
+    sigma[,2] ~ normal(mu_sigma_Air, sigma_Air);                           //air
 
   // Return log probabilities for each model.
   if(prior == 1){
@@ -198,7 +203,7 @@ generated quantities {
                             // backwards t + transition prob + local evidence at t
             if(j == 1) {
               //Water
-              mu_gen[j]= alpha_w[site[t]]+ A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
+              mu_gen[j]= alpha_w[site[t]]+ A[site[t],j]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
               spring_gen = stream_snow(n[t],d[t],tau_est[site[t],j]);
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
                                 student_t_lpdf(y[t]|3, mu_gen[j]+ spring_gen*snow_w[site[t]], sigma[site[t],j]);
