@@ -617,7 +617,8 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
                                  water_A = inits[[1]]$A[,1],
                                  water_mean = inits[[1]]$alpha_w,
                                  prior = 1),
-               pars = c("alpha_w","A","tau_est","snow_w","alpha_tk","gamma",
+               pars = c("alpha_w","A","tau_est","snow_w","sigma",
+                        "alpha_tk","gamma",
                         "b_alpha_w","m_alpha_w"),
                init = inits, warmup = 200, iter = 500, chains = 4, thin = 1,
                control = list(adapt_delta = .9, max_treedepth = 12), save_warmup = T)
@@ -654,10 +655,11 @@ ggsave(filename = "Global_Sim.pdf", path = "~/Documents/rTDataScrub/images", plo
 #ORGANIZE HMM RESULTS
 
 #Mean temperature fit and source probabilities.
-fit = df$daily %>% mutate(row = 1:length(site)) %>% group_by(site,time) %>% do({
+fit = df$daily %>% ungroup() %>% mutate(row = 1:length(site)) %>% group_by(site,time) %>% do({
   filter_water = quantile(cf$alpha_tk[,.$row,1], probs = c(0.025,.25,0.5,.75,.975))
   smooth_water = quantile(cf$gamma[,.$row,1], probs = c(0.025,.25,0.5,.75,.975))
-  water = cf$alpha_w[,.$site] + cf$A[,.$site,1]*cos(2*pi*.$d/.$n + cf$tau_est[,.$site,1]*pi)
+  water = cf$alpha_w[,.$site] + cf$A[,.$site,1]*cos(2*pi*.$d/.$n + cf$tau_est[,.$site,1]*pi) + 
+    stream_snow(.$n, .$d, cf$tau_est[,.$site,1])*cf$snow_w[,.$site]
   air = df$coefs$air_meanT[.$site] + df$coefs$air_A[.$site]*cos(2*pi*.$d/.$n + cf$tau_est[,.$site,2]*pi)
   temp = data.frame(t(c(quantile(water, probs = c(0.025,.25,0.5,.75,.975)),
                  quantile(air, probs = c(0.025,.25,0.5,.75,.975)),
@@ -689,8 +691,9 @@ ggplot(error) +
   #geom_ribbon(aes(percent, ymin = fp_lower_mid, ymax = fp_upper_mid), alpha = .1) +
   geom_line(aes(percent,fp_fit,col=errorType), linetype = 1) + 
   geom_line(aes(percent,sp_fit,col=errorType), linetype = 2) + 
-  #scale_y_log10() +
-  scale_color_manual(values = c("#45062e","#2b6aff"),breaks = c("typeI","typeII"), labels = c("type I","type II")) +
+  scale_y_log10() +
+  scale_color_manual(values = c("#45062e","#2b6aff"),breaks = c("typeI","typeII"),
+                     labels = c("type I","type II")) +
   ggthemes::theme_tufte() +
   theme(legend.direction = "horizontal", legend.position = "top",
         strip.text = element_text(size=10),
@@ -705,24 +708,23 @@ cutoff = error %>% select(percent, fp_fit, errorType) %>%
   spread(data = ., key = errorType, value = fp_fit) %>% 
   mutate(dif = abs(typeI-typeII)) %>% 
   filter(dif == min(dif)) %>% 
-  .$percent %>% min()
+  .$percent %>% min()/100
 
 #Add errors based on cutoff value.
 fit = fit %>% 
-  mutate(s_est_source = if_else(sp_fit>cutoff,"water",if_else(sp_fit<cutoff & sp_fit>.5,"uncertain","air")),
-         f_est_source = if_else(fp_fit>cutoff,"water",if_else(fp_fit<cutoff & fp_fit>.5,"uncertain","air")),
+  mutate(s_est_source = if_else(sp_fit>=cutoff,"water",if_else(sp_fit<cutoff & sp_fit>.5,"uncertain","air")),
+         f_est_source = if_else(fp_fit>=cutoff,"water",if_else(fp_fit<cutoff & fp_fit>.5,"uncertain","air")),
          s_error = if_else(s_est_source == source,1,0),
          f_error = if_else(f_est_source == source,1,0))
 
 #Create error labels for each site.
 percent_error = fit %>% group_by(site) %>%
   do({
-    c = cutoff/100
     n_water = sum(.$source == "water")
     n_AG = sum(.$source != "water")
     
-    error1 = round(sum(.$source[.$fp_fit>c]!="water")/n_AG*100)
-    error2 = round(sum(.$source[.$fp_fit<c]=="water")/n_water*100)
+    error1 = round(sum(.$source[.$fp_fit>cutoff]!="water")/n_AG*100)
+    error2 = round(sum(.$source[.$fp_fit<cutoff]=="water")/n_water*100)
     data.frame(n_water, n_AG, error1, error2,
       x_pos = min(fit$time),
       y_pos = max(fit$temperature)
@@ -790,7 +792,7 @@ p = ggplot(data = fit, aes(time,temperature)) +
         strip.text = element_text(size=8),
         axis.text = element_text(size = 8)) + 
   scale_x_datetime(date_breaks = "3 month", date_labels = "%b") +
-  guides(color = guide_legend(title.position = "top", title.hjust = 1.4)) +
+  guides(color = guide_legend(title.position = "top", title.hjust = 0.8)) +
   facet_wrap(~site, labeller = as_labeller(labels)) +
   geom_text(data = percent_error, aes(x = x_pos, y = y_pos, label = site), hjust = "left", size = 2.3)
 ggsave(filename = "Error_Plot.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "pdf")

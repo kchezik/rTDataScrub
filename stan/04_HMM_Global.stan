@@ -117,7 +117,7 @@ model {
   // Global Priors
     //Mean water temperature
       m_alpha_w ~ normal(.1,.5);
-      b_alpha_w ~ normal(4,2);
+      b_alpha_w ~ normal(log(3),.5);
       sigma_alpha_w ~ student_t(3,0,1);
     //Water temperature amplitude
       sigma_A ~ student_t(3,0.5,1);
@@ -130,14 +130,14 @@ model {
 
   // Local Priors
     // Prior of temperature alpha parameter.
-      alpha_w ~ normal(water_mean, 3);
+      alpha_w ~ normal(water_mean, 5);
 
     // Model of temperature amplitude parameter.
-      A[,1] ~ normal(water_A, 3);
+      A[,1] ~ normal(water_A, 5);
 
     // Model tau
-      tau_est[,1] ~ normal(tau-0.2,.03);
-      tau_est[,2] ~ normal(tau+0.2,.03);
+      tau_est[,1] ~ normal(tau-0.02,.03);
+      tau_est[,2] ~ normal(tau+0.02,.03);
 
     // Spring snow adjustment
       snow_w ~ normal(.5,.5);
