@@ -660,6 +660,7 @@ fit = df$daily %>% ungroup() %>% mutate(row = 1:length(site)) %>% group_by(site,
   smooth_water = quantile(cf$gamma[,.$row,1], probs = c(0.025,.25,0.5,.75,.975))
   water = cf$alpha_w[,.$site] + cf$A[,.$site,1]*cos(2*pi*.$d/.$n + cf$tau_est[,.$site,1]*pi) + 
     stream_snow(.$n, .$d, cf$tau_est[,.$site,1])*cf$snow_w[,.$site]
+  
   air = df$coefs$air_meanT[.$site] + df$coefs$air_A[.$site]*cos(2*pi*.$d/.$n + cf$tau_est[,.$site,2]*pi)
   temp = data.frame(t(c(quantile(water, probs = c(0.025,.25,0.5,.75,.975)),
                  quantile(air, probs = c(0.025,.25,0.5,.75,.975)),
@@ -1017,9 +1018,8 @@ names(air) = paste("air",names(air),sep = "_")
 #Combine data and fits
 df = bind_cols(df_dT, water, air)
 
-#Sample 20 sites and plot
-s = unique(df$new_id)
-s = c(49,1:9)
+#Sample 10 sites and plot
+s = c(49,65,54,39,1,80,87,93,100,74)
 x_ext = range(df_dT$day)
 p_df = df %>% filter(new_id %in% s)
 label = p_df %>% select(new_id, site) %>% distinct()
