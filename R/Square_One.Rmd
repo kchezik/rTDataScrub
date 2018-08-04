@@ -30,7 +30,7 @@ alpha_est = function(){
   data.frame(alpha_max, k, b, m)
 }
 # Create annual temperature curves.
-create = function(A, AR, s_t, meanT, years = 1, tao, df = 3, sp_n=NA, snow=NA, source = "air"){
+create = function(A, AR, s_t, meanT, years = 1, tao, df = 3, snow=NA, source = "air"){
   # Number of samples.
   N = years*365 * 24
   # Generic season cycle.
@@ -44,14 +44,19 @@ create = function(A, AR, s_t, meanT, years = 1, tao, df = 3, sp_n=NA, snow=NA, s
                     rand.gen = function(n, ...) rt(n, df = df))
   #Possible snow effect for water.
   if(source == "water"){
-    #Align snow effect with adjusted observation period.
-    i = ceiling((365*24 - sp_n) - abs(182.5*tao)); sn = cos(2*pi*1:sp_n/sp_n)-1; r = (N/years)-i-length(sn)
-    #Snow effect
-    snow_adj = rep(c(rep(0,i),sn,rep(0,r)),years) * snow 
+    #Determine first derivative of each data point.
+    z = -sin((years*2)*pi*1:N/N + tao*pi)
+    #Determine the day in the spring associated with positive slopes
+    #Return 0 for days outside of spring and early summer
+    day = if_else(z>0,((asin(-1*z)-pi)*N)/(2*pi),0)
+    #Calcuate snow effect for each day in the spring and early summer.
+    adj = if_else(day!=0,sin(2*pi*day/N+pi),0)
+    snow_adj = adj * snow
   }
   #Return combined data.
   if(source == "air") dat = (d_cycle * A + meanT) + h_cycle + noise*sd
   if(source == "water") dat = (d_cycle * A + meanT + snow_adj) + h_cycle + noise*sd
+  
   dat
 }
 # Extract chunks of data randomly within a year.
@@ -90,17 +95,17 @@ generate = function(air_ends = F, air = F, years = 1, randomize = c(T,T), global
   
   water_AR = rbeta(n = 1, shape1 = 400, shape2 = 20)
   
-  # Period length and strength of snow effect.
-  sp_n = round(rnorm(1,182,2),0)*24; snow = rbeta(1,1,1)
+  #Strength of snow effect.
+  snow = rbeta(1,1,1)*3
   
   #Seasonal Period Parameter
-  tao = rbeta(1,1,1) # Randomize sampling period.
+  tao = rbeta(1,1,1)*2+0.035 # Randomize sampling period.
   
   #Create Data.
   df = data.frame(
     air= create(A=air_A, AR=air_AR, s_t=15, meanT=air_meanT, years=years, tao=tao+0.035, df = 7),
     water= create(A=water_A, AR=water_AR, s_t=20, meanT=water_meanT, years=years, tao=tao-0.035, df=10,
-                  sp_n = sp_n, snow = snow, source = "water"),
+                  snow = snow, source = "water"),
   
     # Add a time component so the data can be sampled.
     time = seq(from = ymd_h("2000-07-15 00") + ddays(round(182.5*tao)),
@@ -148,8 +153,7 @@ generate = function(air_ends = F, air = F, years = 1, randomize = c(T,T), global
                    aw_infl = global$m,
                    air_AR,water_AR,
                    air_A, water_A,
-                   air_meanT, water_meanT,
-                   sp_n = sp_n/24, snow)
+                   air_meanT, water_meanT, snow)
   list(dat = fin, coefs = cfs)
 }
 
@@ -228,15 +232,22 @@ n_init = function(time){
   cc
 }
 #Build initial conditions for different numbers of chains.
-create_inits = function(K = 2, A_ij = c(.9,.1,.1,.9), air_A, air_mean, chains = 1){
+create_inits = function(K = 2, A_ij = c(.9,.1,.1,.9), air_A, air_mean, tau, chains = 1){
   #Create single chain list
   A_ij = diag(K); A_ij = if_else(A_ij ==1, .9, .1/(K-1))
   init = list(A_ij = matrix(A_ij, nrow = K, ncol = K),
-              b_alpha_w = 2, m_alpha_w = .5,
+              b_alpha_w = 1, m_alpha_w = .1,
+              tau_est = matrix(data = c(tau,tau+0.02), nrow=length(air_A) , ncol=2),
               A = matrix(data = c(air_mean,air_A), nrow=length(air_A) , ncol=2),
               alpha_w = if_else(air_mean>0,air_mean,2))
   init$A[,1] = if_else(init$alpha_w<13.5, init$alpha_w, (27-init$alpha_w))
   init$A[,1] = if_else(init$A[,1]>=init$A[,2], init$A[,2]-.5, init$A[,1])
+  
+  if(length(air_A) == 1){
+    init$A = init$A[1,]
+    init$tau_est = init$tau_est[1,]
+  }
+    
   #Replicate single list over n chains
   inits = list()
   for(i in 1:chains){
@@ -247,17 +258,9 @@ create_inits = function(K = 2, A_ij = c(.9,.1,.1,.9), air_A, air_mean, chains = 
 }
 
 stream_snow = function(n, d, tau){
-  d_low = (n/2)-(tau * (n/2))
-  d_high = n-(tau * (n/2))
-  c(cos(2*pi*(d-d_low[d>d_low & d<d_high])/(n/2))-1,
-    rep(0,sum(d<=d_low | d>=d_high)))
-}
-air_snow = function(n, d, tau){
-  d_low = (n/2)-(tau * (n/2))
-  d_high = n-(tau * (n/2))
-  
-  c(cos(2*pi*(d-d_low[d>d_low & d<d_high])/(n/2) + 1.5*pi),
-    rep(0,sum(d<=d_low | d>=d_high)))
+  rate = -sin(2*pi*d/n + tau*pi)
+  day = if_else(rate>0, ((asin(-1*rate)-pi)*n)/(2*pi),0)
+  if_else(day!=0,sin(2*pi*day/n+pi),0)
 }
 ```
 
@@ -278,10 +281,9 @@ prob_plot = function(mod, date, temperature, air = NULL, smooth = T, err_perc = 
   
   #Coefficients
   cf = rstan::extract(mod, pars = c("alpha_w","A","tau_est","snow_w"))
-
   #Produce full bayesian probabilities
   fit_w = data.frame(t(sapply(c(1:nrow(df)), function(x){
-    quantile(cf$alpha_w + cf$A * cos(2*pi*df[x,"d"][[1]]/df[x,"n"][[1]] + cf$tau_est[,1]*pi) +
+    quantile(cf$alpha_w + cf$A[,1] * cos(2*pi*df[x,"d"][[1]]/df[x,"n"][[1]] + cf$tau_est[,1]*pi) +
                stream_snow(df[x,"n"][[1]], df[x,"d"][[1]], cf$tau_est[,1]) * cf$snow_w,
              probs = c(0.025,.25,0.5,.75,.975))
   }))) %>% 
@@ -463,23 +465,24 @@ The model fits the real water and air temperature data well and captures the maj
 Now we need to combine the air and water temperature data and build a Hidden Markov Model that pulls them apart.
 
 ```{r Recapture Simulated Multi-Sources w/HMM}
-df = multi_site(n = 1, years = 1, air_ends = T, air = T, randomize = c(F,F))
-inits = create_inits(air_A = df$coefs$air_A, air_mean = df$coefs$air_meanT, chains = 4)
+df = multi_site(n = 1, years = 2, air_ends = T, air = T, randomize = c(F,F))
+inits = create_inits(air_A = df$coefs$air_A, air_mean = df$coefs$air_meanT,
+                     tau = c(df$coefs$tau_approx, df$coefs$tau_approx+0.02), chains = 4)
 
 #Compile and run model.
 compile = stan_model("./stan/02_HMM.stan")
 mod = sampling(compile, data= list(N = nrow(df$daily), K = 2,
                                   y = round(df$daily$temperature,2),
                                   tau = tau_init(time = df$daily$time), 
-                                  n = rep(n_init(time = df$daily$time),nrow(df$daily)),
+                                  n = df$daily$n,
                                   d = df$daily$d,
                                   air_A = df$coefs$air_A,
                                   air_mean = df$coefs$air_meanT,
-                                  water_A = inits[[1]]$A,
+                                  water_A = inits[[1]]$A[1],
                                   water_mean = inits[[1]]$alpha_w),
-               pars = c("alpha_w","A","tau_est","snow_w","sigma","alpha_tk","gamma"),
-               init = inits, warmup = 1000, iter = 2000, chains = 4, thin = 3,
-               control = list(adapt_delta = .9, max_treedepth = 12), save_warmup = F)
+               pars = c("alpha_w","A","tau_est","snow_w","sigma","alpha_tk"),
+               init = inits, warmup = 500, iter = 1000, chains = 4, thin = 2,
+               control = list(adapt_delta = .8, max_treedepth = 10), save_warmup = F)
 
 #Plot
 prob_plot(mod, df$daily$time, df$daily$temperature, smooth = F, err_perc = df$daily$source,
@@ -505,7 +508,8 @@ df_T = read_rds("./Data/thompson_water.rds") %>% filter(site == 49) %>%
   mutate(d = lubridate::yday(day - lubridate::days(x=lubridate::yday(day[1])-1))) %>% group_by(year) %>% 
   mutate(n = n_init(day))
 #Create initial values for the model
-inits = create_inits(air_A = df_inits$air_A, air_mean = df_inits$air_mean, chains = 4)
+inits = create_inits(air_A = df_inits$air_A, air_mean = df_inits$air_mean,
+                     tau = c(tau_init(time = df_T$day),tau_init(time = df_T$day)+0.02), chains = 4)
 #Read in nearest air station.
 air = read_rds("./Data/thompson_air.rds") %>% filter(place == "DARFIELD")
 
@@ -519,11 +523,11 @@ mod = sampling(compile, data= list(N = nrow(df_T), K = 2,
                                    d = df_T$d,
                                    air_A = df_inits$air_A,
                                    air_mean = df_inits$air_mean,
-                                   water_A = inits[[1]]$A,
+                                   water_A = inits[[1]]$A[1],
                                    water_mean = inits[[1]]$alpha_w),
                pars = c("alpha_w","A","tau_est","snow_w","sigma","alpha_tk","gamma"),
-               init = inits, warmup = 1000, iter = 2000, chains = 4, thin = 3,
-               control = list(adapt_delta = .9, max_treedepth = 12), save_warmup = F)
+               init = inits, warmup = 500, iter = 1000, chains = 4, thin = 2,
+               control = list(adapt_delta = .8, max_treedepth = 10), save_warmup = F)
 
 #Plot
 prob_plot(mod, df_T$day, df_T$temperature, air = air, smooth = F,
@@ -597,10 +601,11 @@ Next we need to incorporate the hierarchical model into the HMM model and retrie
 
 ```{r Simulation Hierarchical HMM}
 #Create data for multiple sites.
-df = multi_site(n = 20, years = 1, air_ends = T, air = F, randomize = c(F,T))
+df = multi_site(n = 20, years = 2, air_ends = F, air = F, randomize = c(F,F))
 
 #Gather initial values.
-inits = create_inits(air_A = df$coefs$air_A, air_mean = df$coefs$air_meanT, chains = 4)
+inits = create_inits(air_A = df$coefs$air_A, air_mean = df$coefs$air_meanT,
+                     tau =  df$coefs$tau_approx, chains = 4)
 
 #Compile and run model.
 compile = stan_model("./stan/04_HMM_Global.stan")
@@ -620,8 +625,8 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
                pars = c("alpha_w","A","tau_est","snow_w","sigma",
                         "alpha_tk","gamma",
                         "b_alpha_w","m_alpha_w"),
-               init = inits, warmup = 200, iter = 500, chains = 4, thin = 1,
-               control = list(adapt_delta = .9, max_treedepth = 12), save_warmup = T)
+               init = inits, iter = 100, chains = 4, thin = 1,
+               control = list(adapt_delta = .8, max_treedepth = 10), save_warmup = T)
 
 shinystan::launch_shinystan(mod)
 
@@ -692,7 +697,7 @@ ggplot(error) +
   #geom_ribbon(aes(percent, ymin = fp_lower_mid, ymax = fp_upper_mid), alpha = .1) +
   geom_line(aes(percent,fp_fit,col=errorType), linetype = 1) + 
   geom_line(aes(percent,sp_fit,col=errorType), linetype = 2) + 
-  scale_y_log10() +
+  #scale_y_log10() +
   scale_color_manual(values = c("#45062e","#2b6aff"),breaks = c("typeI","typeII"),
                      labels = c("type I","type II")) +
   ggthemes::theme_tufte() +
@@ -773,7 +778,7 @@ p = ggplot(data = fit) +
   scale_x_datetime(date_breaks = "3 month", date_labels = "%b") +
   labs(color ="Probability Water", x = "Month", y = expression("Temperature ("*degree*"C)")) +
   guides(colour = guide_colourbar(title.position="top")) +
-  facet_wrap(~site)+
+  facet_wrap(~site, scales = "free_x")+
   geom_text(data = percent_error, aes(x = x_pos, y = y_pos, label = site), hjust = "left", size = 2.3)
 ggsave(filename = "Probs_Sim.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "pdf")
 
@@ -859,7 +864,7 @@ mod = sampling(compile, data= list(N = length(df_dT$temperature),
                                  water_mean = inits[[1]]$alpha_water,
                                  prior = 1),
                pars = c("b_alpha_w","m_alpha_w",
-                        "alpha_a","alpha_w","A","tau_est","sp_n","snow",
+                        "alpha_a","alpha_w","A","tau_est","snow",
                         "alpha_tk","gamma"),
                init = inits, iter = 100, chains = 4, thin = 3,
                control = list(adapt_delta = .9, max_treedepth = 12),

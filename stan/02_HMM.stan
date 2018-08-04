@@ -7,12 +7,14 @@ functions {
 // ... to account for hysteresis in the water temperature curve ...
 // ... due to snow melt cooling the stream. The values of this
 // ... cosine curve is modified by a spring snow effect coefficient.
-
   real stream_snow(real n, real d, real tau) {
-    real d_low = (n/2)-(tau * (n/2));
-    real d_high = n-(tau * (n/2));
-    if(d>d_low && d<d_high) {
-      return (cos(2*pi()*(d-d_low)/(n/2))-1);
+    // calulate the first derivative.
+    real rate = -sin(2*pi()*d/n + tau*pi());
+    // if the derivative is positive calculate the snow adjustment, ...
+    // ... otherwise return 0.
+    if(rate>0) {
+      real day = ((asin(-1*rate)-pi())*n)/(2*pi());
+      return sin(2*pi()*day/n+pi());
     } else return 0;
   }
 }
@@ -37,9 +39,9 @@ parameters {
 
   // Seasonal Temperature Model for Air and Water
   real<lower=0> alpha_w;
-  real<lower=0> A;
+  positive_ordered[2] A;
   ordered[2] tau_est;
-  real<lower=0, upper=1> snow_w;
+  real<lower=0, upper=3> snow_w;
   positive_ordered[2] sigma;
 }
 
@@ -57,7 +59,7 @@ transformed parameters {
     for (t in 1:N) {
       if(t == 1){
         //Water
-        mu[1]= alpha_w+ A*cos(2*pi()*d[t]/n[t]+ tau_est[1]*pi());
+        mu[1]= alpha_w+ A[1]*cos(2*pi()*d[t]/n[t]+ tau_est[1]*pi());
         spring = stream_snow(n[t],d[t],tau_est[1]); //Determine the snow effect
         unalpha_tk[t,1]= log(0.5)+ student_t_lpdf(y[t]|3, mu[1] + spring*snow_w, sigma[1]);
 
@@ -73,7 +75,7 @@ transformed parameters {
 
             if(j == 1){
               //Water
-              mu[j]= alpha_w+ A*cos(2*pi()*d[t]/n[t]+ tau_est[j]*pi());
+              mu[j]= alpha_w+ A[1]*cos(2*pi()*d[t]/n[t]+ tau_est[j]*pi());
               spring = stream_snow(n[t],d[t],tau_est[j]); //Determine the snow effect
               accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+
                                 student_t_lpdf(y[t]|3, mu[j] + spring*snow_w, sigma[j]);
@@ -103,17 +105,17 @@ model {
     alpha_w ~ normal(water_mean, 3);
 
   // Model of temperature amplitude parameter.
-    A ~ normal(water_A, 3);
+    A[1] ~ normal(water_A, 3);
 
   // Model tau
-    tau_est[1] ~ normal(tau-0.01,.03);
-    tau_est[2] ~ normal(tau+0.01,.03);
-
-  // Spring snow adjustment
-    snow_w ~ normal(.5,.5);
+    tau_est[1] ~ normal(tau-0.02,.03);
+    tau_est[2] ~ normal(tau+0.02,.03);
 
   // Remaining Variance Priors
     sigma ~ student_t(3,1,2);
+
+  // Enforce order on water amplitude.
+    A[2] ~ normal(air_A, 0.01);
 
   // Return log probabilities for each model.
     target += log_sum_exp(unalpha_tk[N]); // Note: update based only on last unalpha_tk
@@ -153,7 +155,7 @@ generated quantities {
                           // Murphy (2012) Eq. 17.58
                           // backwards t + transition prob + local evidenceat t
           if(j == 1) {
-            mu_gen[j]= alpha_w+ A*cos(2*pi()*d[t]/n[t]+ tau_est[j]*pi());
+            mu_gen[j]= alpha_w+ A[1]*cos(2*pi()*d[t]/n[t]+ tau_est[j]*pi());
             spring_gen = stream_snow(n[t],d[t],tau_est[j]);
             accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
                               student_t_lpdf(y[t]|3, mu_gen[j] + spring_gen*snow_w, sigma[j]);

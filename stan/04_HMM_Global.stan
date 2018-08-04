@@ -9,10 +9,13 @@ functions {
 // The values of this cosine curve are modified by a snow effect coefficient.
 
   real stream_snow(real n, real d, real tau) {
-    real d_low = (n/2)-(tau * (n/2));
-    real d_high = n-(tau * (n/2));
-    if(d>d_low && d<d_high) {
-      return (cos(2*pi()*(d-d_low)/(n/2))-1);
+    // calulate the first derivative.
+    real rate = -sin(2*pi()*d/n + tau*pi());
+    // if the derivative is positive calculate the snow adjustment, ...
+    // ... otherwise return 0.
+    if(rate>0) {
+      real day = ((asin(-1*rate)-pi())*n)/(2*pi());
+      return sin(2*pi()*day/n+pi());
     } else return 0;
   }
 }
@@ -51,8 +54,8 @@ parameters {
   // Seasonal Temperature Model for Air and Water
   vector<lower=0>[S] alpha_w;             // Mean annual water temperature
   positive_ordered[2] A[S];               // Annual temperature amplitude
-  vector[2] tau_est[S];                  // Seasonal location parameter
-  vector<lower=0,upper=1>[S] snow_w;      // Snow effect parameter
+  ordered[2] tau_est[S];                  // Seasonal location parameter
+  vector<lower=0,upper=3>[S] snow_w;      // Snow effect parameter
   positive_ordered[2] sigma[S];           // Seasonal variance parameter
 }
 
@@ -116,8 +119,8 @@ model {
 
   // Global Priors
     //Mean water temperature
-      m_alpha_w ~ normal(.1,.5);
-      b_alpha_w ~ normal(log(3),.5);
+      m_alpha_w ~ normal(.1,.1);
+      b_alpha_w ~ normal(1,.5);
       sigma_alpha_w ~ student_t(3,0,1);
     //Water temperature amplitude
       sigma_A ~ student_t(3,0.5,1);
@@ -138,9 +141,6 @@ model {
     // Model tau
       tau_est[,1] ~ normal(tau-0.02,.03);
       tau_est[,2] ~ normal(tau+0.02,.03);
-
-    // Spring snow adjustment
-      snow_w ~ normal(.5,.5);
 
     // Remaining Variance Priors
       sigma[,1] ~ student_t(3,1.5,2);
