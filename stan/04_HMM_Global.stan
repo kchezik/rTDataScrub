@@ -4,18 +4,16 @@ functions {
   }
 
 // Creates a cosine curve upper bound by zero during the spring ...
-// ... to account for hysteresis (i.e., dampening) in the water ...
-// ... temperature curve caused by snow melt cooling the stream.
-// The values of this cosine curve are modified by a snow effect coefficient.
-
+// ... to account for hysteresis in the water temperature curve ...
+// ... due to snow melt cooling the stream. The values of this
+// ... cosine curve is modified by a spring snow effect coefficient.
   real stream_snow(real n, real d, real tau) {
     // calulate the first derivative.
     real rate = -sin(2*pi()*d/n + tau*pi());
     // if the derivative is positive calculate the snow adjustment, ...
     // ... otherwise return 0.
     if(rate>0) {
-      real day = ((asin(-1*rate)-pi())*n)/(2*pi());
-      return sin(2*pi()*day/n+pi());
+      return rate*-1;
     } else return 0;
   }
 }
@@ -33,7 +31,6 @@ data {
   vector[S] air_mean;             // PRISM air mean temperature estimate
   vector<lower=0>[S] water_A;     // Water amplitude approximation given air_A
   vector<lower=0>[S] water_mean;  // Water mean approximation given air_mean
-  real<lower=0,upper=1> prior;    // 1 if only priors are to be used
 }
 
 parameters {
@@ -156,10 +153,8 @@ model {
     sigma[,2] ~ normal(mu_sigma_Air, sigma_Air);                           //air
 
   // Return log probabilities for each model.
-  if(prior == 1){
     target += -log(alpha_w); // Add the Jacobian Adjustment
     target += log_sum_exp(unalpha_tk[N]); // Note: update based only on last unalpha_tk
-  }
 }
 
 generated quantities {
