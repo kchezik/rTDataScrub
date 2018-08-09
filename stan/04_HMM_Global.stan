@@ -206,7 +206,7 @@ generated quantities {
             }
             if(i == 2){
               //Air
-              mu_gen[j]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],i]*pi());
+              mu_gen[i]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],i]*pi());
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
                                  student_t_lpdf(y[t]|3, mu_gen[i], sigma[site[t],i]);
             }
