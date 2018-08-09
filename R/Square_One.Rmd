@@ -194,10 +194,10 @@ multi_site = function(n = 1, years = 1, air_ends = F, air = F, randomize = c(T,T
     }
   dat$daily = ret[-del,]
   } else dat$daily = ret
-  
   #Add cycle length (`n`) and point in cycle (`d`).
   dat$daily = dat$daily %>% group_by(site) %>% 
-    mutate(year = lubridate::year(time), d = yday(time - days(x=yday(time[1])-1))) %>% 
+    mutate(year = lubridate::year(time), d = yday(time - days(x=yday(time[1])-1)),
+           reset = if_else(time==min(time),1,if_else(time==max(time),2,0))) %>% 
     group_by(site, year) %>% mutate(n = n_init(time))
   
   #Add tau prior estimate and determine how many points are in an annual cycle.
