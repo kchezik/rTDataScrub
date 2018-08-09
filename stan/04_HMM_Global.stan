@@ -25,6 +25,7 @@ data {
   int<lower=1> K;                 // Number of hidden states
   real y[N];                      // Observations
   real<lower=0> d[N];             // Data point d in n
+  real<lower=0,upper=1> reset[N]; // First observation at a site (no=0, forwardYes=1, backwardYes=2)
   vector<lower=0,upper=2>[S] tau; // Define location of annual cycle
   real<lower=0> n[N];             // Define the number of data points in a annual cycle
   vector<lower=0>[S] air_A;       // PRISM air annual temperature range (i.e., amplitude)
@@ -71,7 +72,7 @@ transformed parameters {
 
     for (t in 1:N) {
       // initial estimate
-      if(d[t] == 1){
+      if(reset[t] == 1){
         //Water
         mu[1]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
         spring = stream_snow(n[t],d[t],tau_est[site[t],1]);
@@ -185,29 +186,29 @@ generated quantities {
     for (tforward in 0:(N-2)) {
       int t;
       t = N - tforward;
-      // Reset logbeta at each new site
-      if((d[t-1]-d[t])>0){
-        for (j in 1:K)
-          logbeta[t-1,j] = 1;
-      }
-      // Otherwise, provide probability information to next datapoint.
-      else {
-        for (j in 1:K) {    // j = previous (t-1)
+
+      for (j in 1:K) {  // j = previous (t-1)
+        // Reset logbeta at each new site
+        if(tforward!=0 && reset[t-1]==2){
+           logbeta[t-1,j] = 1;
+        }
+        // Otherwise, provide probability information for next datapoint.
+        else{
           for (i in 1:K) {  // i in next (t)
                             // Murphy (2012) Eq. 17.58
                             // backwards t + transition prob + local evidence at t
-            if(j == 1) {
+            if(i == 1) {
               //Water
-              mu_gen[j]= alpha_w[site[t]]+ A[site[t],j]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
-              spring_gen = stream_snow(n[t],d[t],tau_est[site[t],j]);
+              mu_gen[i]= alpha_w[site[t]]+ A[site[t],i]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],i]*pi());
+              spring_gen = stream_snow(n[t],d[t],tau_est[site[t],i]);
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                                student_t_lpdf(y[t]|3, mu_gen[j]+ spring_gen*snow_w[site[t]], sigma[site[t],j]);
+                                student_t_lpdf(y[t]|3, mu_gen[i]+ spring_gen*snow_w[site[t]], sigma[site[t],i]);
             }
-            if(j == 2){
+            if(i == 2){
               //Air
-              mu_gen[j]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
+              mu_gen[j]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],i]*pi());
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                                 student_t_lpdf(y[t]|3, mu_gen[j], sigma[site[t],j]);
+                                 student_t_lpdf(y[t]|3, mu_gen[i], sigma[site[t],i]);
             }
           }
           logbeta[t-1,j] = log_sum_exp(accumulator);
