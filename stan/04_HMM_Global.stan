@@ -97,7 +97,7 @@ transformed parameters {
               if(j == 2){
                 //Air
                 mu[j]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
-                accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,1])+
+                accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+
                                 student_t_lpdf(y[t]|3, mu[j], sigma[site[t],j]);
               }
           }
