@@ -62,10 +62,8 @@ transformed parameters {
   real mu[2];     // mean temperature
   real spring;    // spring effect on water
 
-
   // log probabilities
   vector[K] unalpha_tk[N];
-
 
   { // Forward algorithm log p(z_t = j | x_{1:t})
     real accumulator[K];
@@ -76,7 +74,7 @@ transformed parameters {
         //Water
         mu[1]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
         spring = stream_snow(n[t],d[t],tau_est[site[t],1]);
-        unalpha_tk[t,1]= log(0.5)+ student_t_lpdf(y[t]|3, mu[1]+ spring*snow_w[site[t]], sigma[site[t],1]);
+        unalpha_tk[t,1]= log(0.5)+ student_t_lpdf(y[t]|3, (mu[1]+ spring* snow_w[site[t]]), sigma[site[t],1]);
 
         //Air
         mu[2]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],2]*pi());
@@ -92,7 +90,7 @@ transformed parameters {
                 mu[j]= alpha_w[site[t]]+ A[site[t],j]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
                 spring = stream_snow(n[t],d[t],tau_est[site[t],j]);
                 accumulator[i]= unalpha_tk[t-1,i] + log(A_ij[i,j]) +
-                                 student_t_lpdf(y[t]|3, mu[j]+ spring*snow_w[site[t]], sigma[site[t],j]);
+                                 student_t_lpdf(y[t]|3, (mu[j]+ spring* snow_w[site[t]]), sigma[site[t],j]);
               }
               if(j == 2){
                 //Air
@@ -202,7 +200,7 @@ generated quantities {
               mu_gen[i]= alpha_w[site[t]]+ A[site[t],i]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],i]*pi());
               spring_gen = stream_snow(n[t],d[t],tau_est[site[t],i]);
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                                student_t_lpdf(y[t]|3, mu_gen[i]+ spring_gen*snow_w[site[t]], sigma[site[t],i]);
+                                student_t_lpdf(y[t]|3, (mu_gen[i]+ spring_gen* snow_w[site[t]]), sigma[site[t],i]);
             }
             if(i == 2){
               //Air
