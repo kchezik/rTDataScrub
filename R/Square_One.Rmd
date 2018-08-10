@@ -609,6 +609,7 @@ inits = create_inits(air_A = df$coefs$air_A, air_mean = df$coefs$air_meanT,
 
 #Compile and run model.
 compile = stan_model("./stan/04_HMM_Global.stan")
+compile = stan_model("./stan/04_HMM_MultiSite.stan")
 mod = sampling(compile, data= list(N = length(df$daily$temperature),
                                  S = length(unique(df$daily$site)),
                                  site = df$daily$site,
@@ -621,11 +622,8 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
                                  air_A = df$coefs$air_A,
                                  air_mean = df$coefs$air_meanT,
                                  water_A = inits[[1]]$A[,1],
-                                 water_mean = inits[[1]]$alpha_w,
-                                 prior = 1),
-               pars = c("alpha_w","A","tau_est","snow_w","sigma",
-                        "alpha_tk","gamma",
-                        "b_alpha_w","m_alpha_w"),
+                                 water_mean = inits[[1]]$alpha_w),
+               pars = c("alpha_w","A","tau_est","snow_w","sigma","alpha_tk"),
                init = inits, iter = 100, chains = 4, thin = 1,
                control = list(adapt_delta = .8, max_treedepth = 10), save_warmup = T)
 
