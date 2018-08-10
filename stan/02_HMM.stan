@@ -13,8 +13,7 @@ functions {
     // if the derivative is positive calculate the snow adjustment, ...
     // ... otherwise return 0.
     if(rate>0) {
-      real day = ((asin(-1*rate)-pi())*n)/(2*pi());
-      return sin(2*pi()*day/n+pi());
+      return rate*-1;
     } else return 0;
   }
 }
@@ -65,7 +64,7 @@ transformed parameters {
 
         //Air
         mu[2]= air_mean+ air_A*cos(2*pi()*d[t]/n[t]+ tau_est[2]*pi());
-        unalpha_tk[t,2]= log(0.5)+ student_t_lpdf(y[t]|3, mu[2], sigma[1]);
+        unalpha_tk[t,2]= log(0.5)+ student_t_lpdf(y[t]|3, mu[2], sigma[2]);
       }
       else{
         for (j in 1:K) {    // j = current (t) or transition state column.
@@ -75,7 +74,7 @@ transformed parameters {
 
             if(j == 1){
               //Water
-              mu[j]= alpha_w+ A[1]*cos(2*pi()*d[t]/n[t]+ tau_est[j]*pi());
+              mu[j]= alpha_w+ A[j]*cos(2*pi()*d[t]/n[t]+ tau_est[j]*pi());
               spring = stream_snow(n[t],d[t],tau_est[j]); //Determine the snow effect
               accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+
                                 student_t_lpdf(y[t]|3, mu[j] + spring*snow_w, sigma[j]);
@@ -155,15 +154,15 @@ generated quantities {
                           // Murphy (2012) Eq. 17.58
                           // backwards t + transition prob + local evidenceat t
           if(j == 1) {
-            mu_gen[j]= alpha_w+ A[1]*cos(2*pi()*d[t]/n[t]+ tau_est[j]*pi());
-            spring_gen = stream_snow(n[t],d[t],tau_est[j]);
+            mu_gen[i]= alpha_w+ A[1]*cos(2*pi()*d[t]/n[t]+ tau_est[i]*pi());
+            spring_gen = stream_snow(n[t],d[t],tau_est[i]);
             accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                              student_t_lpdf(y[t]|3, mu_gen[j] + spring_gen*snow_w, sigma[j]);
+                              student_t_lpdf(y[t]|3, mu_gen[i] + spring_gen*snow_w, sigma[i]);
           }
           if(j == 2){
-            mu_gen[j]= air_mean+ air_A*cos(2*pi()*d[t]/n[t]+ tau_est[j]*pi());
+            mu_gen[i]= air_mean+ air_A*cos(2*pi()*d[t]/n[t]+ tau_est[i]*pi());
             accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                              student_t_lpdf(y[t]|3, mu_gen[j], sigma[j]);
+                              student_t_lpdf(y[t]|3, mu_gen[i], sigma[i]);
           }
         }
         logbeta[t-1,j] = log_sum_exp(accumulator);
@@ -183,4 +182,3 @@ generated quantities {
       gamma[t] = normalize(loggamma[t]);
   } //forward-backward
 }
-
