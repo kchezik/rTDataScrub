@@ -609,7 +609,6 @@ inits = create_inits(air_A = df$coefs$air_A, air_mean = df$coefs$air_meanT,
 
 #Compile and run model.
 compile = stan_model("./stan/04_HMM_Global.stan")
-compile = stan_model("./stan/04_HMM_MultiSite.stan")
 mod = sampling(compile, data= list(N = length(df$daily$temperature),
                                  S = length(unique(df$daily$site)),
                                  site = df$daily$site,
@@ -617,13 +616,16 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
                                  y = round(df$daily$temperature,2),
                                  d = df$daily$d,
                                  reset = df$daily$reset,
+                                 accum = which(df$daily$reset==2),
                                  tau = df$coefs$tau_approx,
                                  n = df$daily$n,
                                  air_A = df$coefs$air_A,
                                  air_mean = df$coefs$air_meanT,
                                  water_A = inits[[1]]$A[,1],
                                  water_mean = inits[[1]]$alpha_w),
-               pars = c("alpha_w","A","tau_est","snow_w","sigma","alpha_tk"),
+               pars = c("alpha_w","A","tau_est","snow_w","sigma",
+                        "alpha_tk","gamma",
+                        "b_alpha_w", "m_alpha_w"),
                init = inits, iter = 100, chains = 4, thin = 1,
                control = list(adapt_delta = .8, max_treedepth = 10), save_warmup = T)
 
@@ -757,6 +759,9 @@ labels = c("1" = percent_error$label[1],
            "18" = percent_error$label[18],
            "19" = percent_error$label[19],
            "20" = percent_error$label[20])
+
+
+#Plot the probabilites as a continuous colored ribbon at the top of the error plot. This will combine the two nearly identical plots without loosing the information.
 
 #Plot data, mean estimate and error.
 p = ggplot(data = fit) +
