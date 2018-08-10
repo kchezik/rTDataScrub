@@ -12,7 +12,7 @@ library(tidyverse); library(rstan)
 options(mc.cores = parallel::detectCores(), auto_write = TRUE)
 ```
 
-##Data Simulation and Parameter Estimation Functions
+## Data Simulation and Parameter Estimation Functions
 
 These functions create simulated data and offer tools to estimate parameter priors.
 
