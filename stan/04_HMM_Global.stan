@@ -26,7 +26,7 @@ data {
   real y[N];                      // Observations
   real<lower=0> d[N];             // Data point d in n
   real<lower=0,upper=2> reset[N]; // First observation at a site (no=0, forwardYes=1, backwardYes=2)
-  int<lower=0> accum[S];       // Accumulate final row of each site towards target.
+  int<lower=0> accum[S];          // Accumulate final row of each site towards target.
   vector<lower=0,upper=2>[S] tau; // Define location of annual cycle
   real<lower=0> n[N];             // Define the number of data points in a annual cycle
   vector<lower=0>[S] air_A;       // PRISM air annual temperature range (i.e., amplitude)

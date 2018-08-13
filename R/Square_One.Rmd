@@ -626,8 +626,8 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
                pars = c("alpha_w","A","tau_est","snow_w","sigma",
                         "alpha_tk","gamma",
                         "b_alpha_w", "m_alpha_w"),
-               init = inits, iter = 100, chains = 4, thin = 1,
-               control = list(adapt_delta = .8, max_treedepth = 10), save_warmup = T)
+               init = inits, warmup = 500, iter = 1000, chains = 4, thin = 1,
+               control = list(adapt_delta = .8, max_treedepth = 10), save_warmup = F)
 
 shinystan::launch_shinystan(mod)
 
@@ -698,7 +698,7 @@ ggplot(error) +
   #geom_ribbon(aes(percent, ymin = fp_lower_mid, ymax = fp_upper_mid), alpha = .1) +
   geom_line(aes(percent,fp_fit,col=errorType), linetype = 1) + 
   geom_line(aes(percent,sp_fit,col=errorType), linetype = 2) + 
-  #scale_y_log10() +
+  scale_y_log10() +
   scale_color_manual(values = c("#45062e","#2b6aff"),breaks = c("typeI","typeII"),
                      labels = c("type I","type II")) +
   ggthemes::theme_tufte() +
@@ -825,11 +825,6 @@ df_inits = read_rds("./Data/thompson_air_inits.rds") %>%
 #Read in water temperature data and remove site 102 as it is lake temperature.
 df_T = read_rds("./Data/thompson_water.rds") %>% filter(site != 103)
 
-#Limit sites for testing.
-samp = sample(x = unique(df_inits$site), size = 20)
-df_T = filter(df_T, site %in% samp)
-df_inits = filter(df_inits, site %in% samp)
-
 #Create a reference table to add new continuous site ID values to the water temperature data. 
 ref = df_T %>% select(site) %>% distinct() %>% mutate(new_id = c(1:n()))
 
@@ -840,7 +835,9 @@ df_dT = df_T %>% mutate(year = lubridate::year(date),
                         day = lubridate::floor_date(date, unit = "day"), 
                         doy = lubridate::yday(date)) %>%
   group_by(site, year, day, doy) %>% summarise(temperature = mean(temperature)) %>% 
-  left_join(., ref) %>% group_by(site) %>% mutate(d = (day-min(day))/lubridate::ddays(1)+1) %>% 
+  left_join(., ref) %>% group_by(site) %>% 
+  mutate(d = yday(day - days(x=yday(day[1])-1)),
+         reset = if_else(day==min(day),1,if_else(day==max(day),2,0))) %>% 
   group_by(site, year) %>% mutate(n_cycle = n_init(day))
 
 #Add the climate inits with estimates of tau.
@@ -849,30 +846,31 @@ df_inits = df_dT %>% group_by(site) %>%
   left_join(df_inits,.) %>% filter(!is.na(tau))
 
 #Gather initial values.
-inits = create_inits(air_A = df_inits$air_A, air_alpha = df_inits$air_mean, 
-                     n_sites = length(unique(df_inits$site)), chains = 4, K = 2)
+inits = create_inits(air_A = df_inits$air_A, air_mean = df_inits$air_mean, 
+                     tau = df_inits$tau, chains = 4)
 
 #Compile and run model.
-compile = stan_model("./stan/04_HMM_GWA.stan")
+compile = stan_model("./stan/04_HMM_Global.stan")
 mod = sampling(compile, data= list(N = length(df_dT$temperature),
                                  S = length(unique(df_dT$site)),
                                  site = df_dT$new_id,
                                  K = 2,
                                  y = round(df_dT$temperature,2),
                                  d = df_dT$d,
+                                 reset = df_dT$reset,
+                                 accum = which(df_dT$reset==2),
                                  tau = df_inits$tau,
                                  n = df_dT$n_cycle,
-                                 air_A = inits[[1]]$A[,2],
-                                 air_mean = inits[[1]]$alpha_air,
+                                 air_A = df_inits$air_A,
+                                 air_mean = df_inits$air_mean,
                                  water_A = inits[[1]]$A[,1],
-                                 water_mean = inits[[1]]$alpha_water,
-                                 prior = 1),
+                                 water_mean = inits[[1]]$alpha_w),
                pars = c("b_alpha_w","m_alpha_w",
-                        "alpha_a","alpha_w","A","tau_est","snow",
+                        "alpha_w","A","tau_est","snow_w","sigma",
                         "alpha_tk","gamma"),
-               init = inits, iter = 100, chains = 4, thin = 3,
-               control = list(adapt_delta = .9, max_treedepth = 12),
-               save_warmup = F, sample_file = "./stan/Mod_Results/04_HMM_GWA_Samples.csv")
+               init = inits, warmup = 500, iter = 1000, chains = 4, thin = 2,
+               control = list(adapt_delta = .8, max_treedepth = 10),
+               save_warmup = F, sample_file = "./stan/Mod_Results/04_HMM_Global_Samples.csv")
 
 
 #Read in model.
