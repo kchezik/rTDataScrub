@@ -631,6 +631,9 @@ mod = sampling(compile, data= list(N = length(df$daily$temperature),
 
 shinystan::launch_shinystan(mod)
 
+#Read in saved model and data-frame.
+df = read_rds("./stan/Mod_Results/04_HMM_Global_500_df.rds")
+mod = read_rds("./stan/Mod_Results/04_HMM_Global_500.rds")
 
 #Coefficients
 cf = rstan::extract(mod, pars = c("alpha_w","A","tau_est","snow_w","alpha_tk","gamma"))
@@ -643,8 +646,8 @@ global = bind_rows(alpha,A) %>% rename(lower = X2.5., lower_mid = X25., fit = X5
 
 
 p = ggplot(global, aes(observed, fit)) + 
-  geom_errorbar(aes(x = observed, ymax=upper, ymin=lower), linetype = 1, size = .1, alpha = .3) +
-  geom_errorbar(aes(x = observed, ymax=upper_mid, ymin=lower_mid), linetype = 1, size = .3, alpha = .5) +
+  #geom_errorbar(aes(x = observed, ymax=upper, ymin=lower), linetype = 1, size = 1, alpha = .3) +
+  #geom_errorbar(aes(x = observed, ymax=upper_mid, ymin=lower_mid), linetype = 1, size = 1.5, alpha = .5) +
   geom_point(col = "#45062e", shape = 19, size = .8) +
   geom_point(aes(observed, prior),shape = 1, col = "#2b6aff", size = 1) +
   geom_abline(intercept = 0, slope = 1, linetype = 2, size = .3) +
@@ -680,34 +683,67 @@ fit = df$daily %>% ungroup() %>% mutate(row = 1:length(site)) %>% group_by(site,
 
 fit = left_join(df$daily, fit)
 
+#Add viridris color to the dataframe.
+ref = data.frame(ref=seq(0,1,by=0.01), col = viridis::viridis(100+1, direction = -1, alpha = 0.1))
+fit$col = unlist(apply(fit,1,function(x){
+  as.character(ref[round(ref$ref,2)==round(as.numeric(x["fp_fit"][[1]]),2),"col"][1])
+}))
+fit$p_loc = 23
+
 #Calculate error rates for full range of possible outcomes using both filtered and smoothed probabilities.
 perc = seq(.5,.99,.001)
 typeI = data.frame(t(sapply(X = perc, FUN = function(t){
-  apply(fit[,18:27],2, function(x){sum(x>t & fit[,2] != "water")})
+  apply(fit[,18:28],2, function(x){sum(x>t & fit[,2] != "water")})
 }))) %>% mutate(errorType = "typeI", percent = perc*100)
 
 typeII = data.frame(t(sapply(X = perc, FUN = function(t){
-  apply(fit[,18:27],2, function(x){sum(x<t & fit[,2] == "water")})
+  apply(fit[,18:28],2, function(x){sum(x<t & fit[,2] == "water")})
 }))) %>% mutate(errorType = "typeII", percent = perc*100)
 
 error = bind_rows(typeI, typeII)
 
 #Plot error rates
-ggplot(error) + 
-  #geom_ribbon(aes(percent, ymin = fp_lower, ymax = fp_upper), alpha = .1) +
-  #geom_ribbon(aes(percent, ymin = fp_lower_mid, ymax = fp_upper_mid), alpha = .1) +
+p1 = ggplot(error) + 
+  geom_ribbon(aes(percent, ymin = fp_lower, ymax = fp_upper, fill=errorType), alpha = .08) +
+  geom_ribbon(aes(percent, ymin = fp_lower_mid, ymax = fp_upper_mid, fill=errorType), alpha = .08) +
   geom_line(aes(percent,fp_fit,col=errorType), linetype = 1) + 
-  geom_line(aes(percent,sp_fit,col=errorType), linetype = 2) + 
-  scale_y_log10() +
+  #geom_line(aes(percent,sp_fit,col=errorType), linetype = 2) + 
+  scale_y_log10(breaks = c(10,100,1000), labels = c("10","100","1000"), limits = c(10,1000)) +
   scale_color_manual(values = c("#45062e","#2b6aff"),breaks = c("typeI","typeII"),
                      labels = c("type I","type II")) +
+  scale_fill_manual(values = c("#45062e","#2b6aff")) +
   ggthemes::theme_tufte() +
   theme(legend.direction = "horizontal", legend.position = "top",
-        strip.text = element_text(size=10),
+        title = element_text(size=8),
+        strip.text = element_text(size=8),
         axis.text = element_text(size = 8), 
         legend.title = element_blank()) +
+  guides(fill = F) +
   labs(y = "Number of Errors", 
-       x = "Water Certainty Cutoff (%)")
+       x = "Water Certainty Cutoff (%)",
+       title = "Filtered Probabilities")
+
+p2 = ggplot(error) + 
+  geom_ribbon(aes(percent, ymin = sp_lower, ymax = sp_upper, fill=errorType), alpha = .08) +
+  geom_ribbon(aes(percent, ymin = sp_lower_mid, ymax = sp_upper_mid, fill=errorType), alpha = .08) +
+  #geom_line(aes(percent,fp_fit,col=errorType), linetype = 1) + 
+  geom_line(aes(percent,sp_fit,col=errorType), linetype = 2) + 
+  scale_y_log10(breaks = c(10,100,1000), labels = c("10","100","1000"), limits = c(10,1000)) +
+  scale_color_manual(values = c("#45062e","#2b6aff"),breaks = c("typeI","typeII"),
+                     labels = c("type I","type II")) +
+  scale_fill_manual(values = c("#45062e","#2b6aff")) +
+  ggthemes::theme_tufte() +
+  theme(legend.direction = "horizontal", legend.position = "top",
+        title = element_text(size=8),
+        strip.text = element_text(size=8),
+        axis.text = element_text(size = 8),
+        axis.title.y.left = element_blank(),
+        legend.title = element_blank()) +
+  guides(fill = F) +
+  labs(y = "Number of Errors", 
+       x = "Water Certainty Cutoff (%)",
+       title = "Smoothed Probabilities")
+p = gridExtra::grid.arrange(p1,p2,layout_matrix = matrix(data = c(1,2), nrow = 1, ncol = 2))
 ggsave(filename = "Error_Type.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 7.5, height = 3.5, units = "in", device = "pdf")
 
 #Determine the lowest certainty cut-off that minimizes both error types
@@ -785,10 +821,12 @@ p = ggplot(data = fit) +
   facet_wrap(~site, scales = "free_x")+
   geom_text(data = percent_error, aes(x = x_pos, y = y_pos, label = site), hjust = "left", size = 2.3)
 ggsave(filename = "Probs_Sim.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "pdf")
+ggsave(filename = "Probs_Sim.png", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "png", dpi = 500)
 
 p = ggplot(data = fit, aes(time,temperature)) +
-  geom_ribbon(aes(time, ymin = w_lower, ymax = w_upper), alpha = .3, fill = "#5b0982") +
-  geom_ribbon(aes(time, ymin = a_lower, ymax = a_upper), alpha = .2, fill = "#7eb795") +
+  #geom_ribbon(aes(time, ymin = w_lower, ymax = w_upper), alpha = .3, fill = "#5b0982") +
+  #geom_ribbon(aes(time, ymin = a_lower, ymax = a_upper), alpha = .2, fill = "#7eb795") +
+  geom_point(aes(time, p_loc), color = fit$col, shape = 15, size = .8) +
   geom_point(aes(color = f_est_source), size = 0.5) +
   geom_line(aes(time, w_fit), size = .3) +
   geom_line(aes(time, a_fit), size = .3) +
@@ -798,15 +836,15 @@ p = ggplot(data = fit, aes(time,temperature)) +
   labs(color = "Estimated Thermal Source", x = "Month", y = expression("Temperature ("*degree*"C)")) +
   annotate("segment", x=min(fit$time), xend = max(fit$time), y=-Inf, yend=-Inf, size = .2) +
   ggthemes::theme_tufte() + 
-  theme(legend.direction = "horizontal", legend.position = "top",
+  theme(legend.direction = "horizontal", legend.position = c(.65,1.085), plot.margin = unit(c(4,1,1,1),"lines"),
         strip.text = element_text(size=8),
         axis.text = element_text(size = 8)) + 
-  scale_x_datetime(date_breaks = "3 month", date_labels = "%b") +
+  scale_x_datetime(date_breaks = "4 month", date_labels = "%b") +
+  scale_y_continuous(limits = c(-8,23)) +
   guides(color = guide_legend(title.position = "top", title.hjust = 0.8)) +
   facet_wrap(~site, labeller = as_labeller(labels)) +
   geom_text(data = percent_error, aes(x = x_pos, y = y_pos, label = site), hjust = "left", size = 2.3)
-ggsave(filename = "Error_Plot.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "pdf")
-      #x_pos = min(.$time[lubridate::month(.$time)==2])-30
+ggsave(filename = "Error_Plot.png", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "png", dpi = 500, bg = "transparent")
 
 #Variance around mean water and ground temperature.
 temp = temp %>% mutate(
