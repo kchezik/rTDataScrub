@@ -28,7 +28,7 @@ Hidden Markov Models (HMM) are a type of state-space model that offers a probabi
 \end{equation}
 \end{linenomath*}
  
-where the state probabilities of air and water (*k = a, w*) at time point $t$ are informed by the state probabilities in the previous time point. This Markovian structure makes explicit our expectation that the current time point will likely remaining in the same state as the previous. We cannot observe the true state directly so we infer $z_{t}$ by considering the probability of the observed data ($y_{t}$) in either state as,
+where the state probabilities of air and water (*k = a, w*) at time point $t$ are informed by the state probabilities in the previous time point. This Markovian structure makes explicit our expectation that the current time point will likely remain in the same state as the previous. We cannot observe the true state directly so we infer $z_{t}$ by considering the probability of the observed data ($y_{t}$) in either state as,
 
 \begin{linenomath*}
 \begin{equation}
@@ -45,11 +45,11 @@ where coefficients describing each state and a transition matrix describing the 
 \end{equation}
 \end{linenomath*}
 
-returns the full probability of being in a given state as the relative support of the data in the current time step and the systems susceptability to a state change, weighted by the state probabilities in the previous time step [@Damiano:2017]. A more in depth discussion of the HMM model and algorithm can be found in @Hamilton:2016 and a very good tutorial that acted as the framework herein has been developed by @Damiano:2017.
+returns the full probability of each state given the relative support of the data in the current time step and the systems susceptability to a state change, weighted by the state probabilities in the previous time step [@Damiano:2017]. A more in depth discussion of the HMM model and algorithm can be found in @Hamilton:2016 and a very good tutorial that acted as the framework herein has been developed by @Damiano:2017.
 
 *States: Water & Air Temperature Models*
 
-Water and air temperatures follow the seasonal dynamics derived from changing levels of solar radiation related to the earths orbit and tilt of its axis. The shared ultimate cause of temperature and the passive exchange of energy between the two mediums results in stream and water temperature cycles being closesly correlated. But due to differences in thermal dynamics of gases and liquids, the temperature cycles' of air and water do diverge in magnitude and timing. Therefore, we used the same cyclical model [e.g., @Shumway:2000] for both water and air temperature states described by,
+Water and air temperatures follow the seasonal dynamics derived from changing levels of solar radiation related to the earths orbit and tilt of its axis. The shared ultimate cause of temperature and the passive exchange of energy between the two mediums results in stream and water temperature cycles being closely correlated. But due to differences in the thermal dynamics of gases and liquids, the temperature cycles' of air and water do diverge in magnitude and timing. Therefore, we used the same cyclical model [e.g., @Shumway:2000] for both water and air temperature states described by,
 
 \begin{linenomath*}
 \begin{equation}
@@ -57,7 +57,7 @@ Water and air temperatures follow the seasonal dynamics derived from changing le
 \end{equation}
 \end{linenomath*}
 
-where a cosine curve capturing the seasonal ocilation of temperature ($y_{t}$) is modified by state coefficients that describe the annual dynamics of air and water temperature ($z_{w,a}$). The mean annual temperature is captured in $\alpha$ while the range of temperature values around $\alpha$ (i.e., amplitude) are captured in $A$. The frequency of the temperature cycle ($\omega$) is described by,
+where a cosine curve capturing the seasonal oscillation of temperature ($y_{t}$) is modified by state coefficients that describe the annual dynamics of air and water temperature ($z_{w,a}$). The mean annual temperature is captured in $\alpha$ while the range of temperature values around $\alpha$ (i.e., amplitude) are captured in $A$. The frequency of the temperature cycle ($\omega$) is described by,
 
 \begin{linenomath*}
 \begin{equation}
@@ -75,17 +75,17 @@ The variance around the mean temperature is a distinguishing feature between ann
 \end{equation}
 \end{linenomath*}
 
-We expect $A$ (eq.$\ref{eq4}$) and $\sigma$ (eq.$\ref{eq6}$) to be ordered (i.e., $w \prec a$) because the higher thermal capacity of water reduces the amplitude and variance of water's annual temperature cycle. Therefore, we expect the amplitude and variance to always be larger in the air temperature state than the water temperature state. Ordering of variables not only captures the differential dynamics of the states but increases the stability of estimation by reducing the potential for state inversion (i.e., label switching) during the multi-chain MCMC process.
+We expect $A_{k}$ (eq.$\ref{eq4}$) and $\sigma_{k}$ (eq.$\ref{eq6}$) to be ordered (i.e., $w \prec a$) because the higher thermal capacity of water reduces the amplitude and variance of water's annual temperature cycle. Therefore, we expect the amplitude and variance to always be larger in the air temperature state than the water temperature state. Ordering of variables not only captures the differential dynamics of the states but increases the stability of estimation by reducing the potential for state inversion (i.e., label switching) during the multi-chain MCMC process.
 
-Although neither air or stream temperature profiles are perfectly described by a cosine curve, stream temperatures are particularly prone to hysteresis where spring and fall temperatures are not symetrical around summer's peak temperatures [@Letcher:2016]. Hysteresis in the annual stream temperature curve occurs for many reasons but most common is snow melt. In northern latitudes spring snow melt depresses stream temperatures initially while fall temperatures track the air more closely. To allow our stream temperature curves a modecum of flexibility during the spring period, we reduced mean spring temperatures (eq. $\ref{eq4}$) using the zero bound cosine curve,
+Although neither air or stream temperature profiles are perfectly described by a cosine curve, stream temperatures are particularly prone to hysteresis where spring and fall temperatures are not symetrical around summer's peak temperatures [@Letcher:2016]. Hysteresis in the annual stream temperature curve occurs for many reasons but most common is snow melt. In northern latitudes spring snow melt depresses stream temperatures initially while fall temperatures track the air more closely. To allow our stream temperature curves a modecum of flexibility during the spring period, we reduced mean spring temperatures (eq. $\ref{eq4}$) using the negative of the first derivative of the cosine curve,
 
 \begin{linenomath*}
 \begin{equation}
-	\mathrm{spring} = (\cos(2\pi (d_{t}-d_{low})/(\gamma/2))-1)\phi \label{eq7}
+	\mathrm{spring} = -\sin(2\pi\omega + \tau_{w}\pi)\phi \label{eq7}
 \end{equation}
 \end{linenomath*}
 
-such that the snow effect adjustment begins at 0 around the estimated coldest day of the year, increases in effect until mid-spring and then delines back to 0 by the estimated summers peak temperature. The effect of this adjustment is modulated by the estimated snow effect coefficient ($\phi$) where 0 represents no impact of snow on the spring temperatures and 1 indicates a maximium of 2 degrees dampening. To determine the spring period we used our known $d_{t}$, $\gamma$ and estimated $\tau$ values to determine $d$ values when temperatures are coldest ($d_{low}$) and warmest ($d_{high}$). When d values were larger than $d_{low}$ and smaller than $d_{high}$ we estimated the spring effect and otherwise returned a value of zero.
+such that the snow effect adjustment begins at 0 around the estimated coldest day of the year, increases in effect until mid-spring, peaking at -1, and then returns back to 0 by the estimated summer's peak temperature. The strength of this adjustment is modulated by the estimated snow effect coefficient ($\phi$) where 0 represents no impact of snow on the spring temperatures and 3 indicates a maximium of 3 degrees dampening. To determine the spring period we used our known $d_{t}$, $\gamma$ (i.e., $\omega$) and estimated $\tau_{w}$ values to calculate the slope of the cosine curve. If the slope was positive, indicating warming spring temperatures, we returned the negative of the slope and if the slope was negative we returned a value of 0 to elminate temperature adjustments outside the spring period.
 
 *Global Models*
 
@@ -97,7 +97,7 @@ Parameters describing air and water dynamics exhibit dependancies that scale tog
 \end{equation}
 \end{linenomath*}
 
-where $b_{\alpha}$ is the mean annual water temperature when mean annual air temperature is zero and $m_{\alpha}$ describes the rate at which $\alpha_{z_{w}}$ increases with $\alpha_{z_{a}}$ among locations ($j$). Due to local characteristics of watersheds (i.e., glaciers, ground water, canopy cover, elevation, ...) that contribute to water's temperature profile, variance around the mean relationship between mean annual air and water temperatures was approximated using a *student-t* distribution centered on 0 with 3 degrees of freedom and a variance parameter $\varepsilon_{\alpha}$, thereby capturing approximately normal errors with small probabilities of  extreme values. By log transforming the response variable ($\alpha_{z_{w},j}$) we ensure mean annual water temperature estimates remain positive as negative values would suggest the water is frozen.
+where $b_{\alpha}$ is the mean annual water temperature when mean annual air temperature is zero and $m_{\alpha}$ describes the rate at which $\alpha_{w}$ increases with $\alpha_{a}$ among locations ($j$). Due to local characteristics of watersheds (i.e., glaciers, ground water, canopy cover, elevation, ...) that contribute to water's temperature profile, variance around the mean relationship between mean annual air and water temperatures was approximated using a *student t* distribution centered on 0 with 3 degrees of freedom and a variance parameter $\varepsilon_{\alpha}$, thereby capturing approximately normal errors with small probabilities of  extreme values. By log transforming the response variable ($\alpha_{w,j}$) we ensure mean annual water temperature estimates remain positive as negative values would suggest the water is frozen.
 
 For locations where air temperature spends a period of time below 0$\text{\textdegree}$C, liquid water temperature is lower-bound by zero. In this instance, the mean annual temperature and amplitude are interdependant such that $A_{w,j}$ reflects the mean annual water temperature (i.e., $\alpha_{w,j}$). We can leverage this relationship by including a model describing water temperatures amplitude as,
 
@@ -117,7 +117,7 @@ Finally, the error terms for the two state models (i.e., $\sigma_{k}$ in eq. \re
 \end{equation}
 \end{linenomath*}
 
-where $\mu_{\sigma_{k}}$ is the mean variance estimate with error term $\varepsilon_{\sigma_{k}}$ describing the variance around the mean. These global models are particularly powerful when estimating parameters for sites where very little air or water temperature data were collected, thereby reducing overlap in the state models and improving state determination.
+where $\mu_{\sigma_{k}}$ is the mean variance estimate with error term $\varepsilon_{\sigma_{k}}$ describing the variance around the mean. These global models are particularly powerful when estimating parameters for sites where very little water temperature data were collected, thereby reducing overlap in the state models and improving state determination.
 
 *Temperature HMM*
 
@@ -143,7 +143,7 @@ These $\alpha_{a}$ and $A_{a}$ values were translated to water values ($\alpha_{
 
 where $\alpha_{w}$ values are bound between 0 and 27$\text{\textdegree}$C, had a midpoint of 16$\text{\textdegree}$C and changed over $\alpha_{a}$ values with a steepness coefficient of 0.15. We simply doubled mean annual water temperatures to calculate $A_{w}$ which ensured simulated water temperatures were rarely below 0$\text{\textdegree}$C. Uncertainty was included in all $\alpha$ and $A$ coefficients by sampling random noise from a normal distribution.
 
-Upon random sampling a common $\tau$ estimate from a flat beta distribution and lagging water behind air by 0.07, we generated temperature data using equation $\ref{eq4}$. Unlike in the HMM we allowed the errors in the simulated data to be correlated in order to produce data with momentum, thereby capturing the observed behaviour where temperatures above or below the mean are more likely to remain so in the subsequent day(s). We also allowed $\sigma$ to change seasonally with greater variance at seasonal inflection points (i.e, winter and summer) and less variance when temperature are waxing or waning (i.e., spring vs. fall). In order to generate a single time series of water with erroneous air data we randomly selected chunks of water temperature data to be replaced by air temperature data. We also allowed for the first and last data point in the series to be air temperature among a random sample of sites, as air is often recorded when deploying and retrieving temperature loggers.
+Upon random sampling a common $\tau$ estimate from a flat beta distribution and lagging water behind air by 0.07, we generated temperature data using equation $\ref{eq4}$. Unlike in the HMM we allowed the errors in the simulated data to be correlated in order to produce data with momentum, thereby capturing the observed behaviour where temperatures above or below the mean are more likely to remain so in the subsequent day(s). We also allowed $\sigma$ to change seasonally with greater variance at seasonal inflection points (i.e, winter and summer) and less variance when temperatures are waxing or waning (i.e., spring vs. fall). In order to generate a single time series of water with erroneous air data we randomly selected chunks of water temperature data to be replaced by air temperature data. We also allowed for the first and last data point in the series to be air temperature among a random sample of sites, as air is often recorded when deploying and retrieving temperature loggers.
 
 *Observed Data*
 
@@ -152,16 +152,16 @@ To demonstrate a real world application, we applied our HMM to raw stream temper
 \begin{figure}[h]
 \centering
 \includegraphics[width=3.25in]{../images/Map.png}
-	\caption{Water and air temperarature observation locations within the Thompson River watshed, nested within the Fraser River watershed (dark grey) in central British Columbia Canada (light grey). Water temperature locations (red) were monitored between July 2014 and August 2017 concurrently with air temperature stations (blue) maintained by Enironment Canada.}
+	\caption{Water and air temperarature observation locations within the Thompson River watershed, nested within the Fraser River watershed (dark grey) in central British Columbia Canada (light grey). Water temperature locations (red) were monitored between July 2014 and August 2017 concurrently with air temperature stations (blue) maintained by Enironment Canada.}
 \label{fig:6}
 \end{figure}
 
 *Model Priors & Known Quantities*
 
-Weakly informative priors were used for the transition state and global model parameters. We expect when temperature data are in a given state, they are more likely to remain in that state than transition to another state. Therefore, we applied beta priors with shape parameters $alpha$ = 10 and $beta$ = 2 for the probability of remaining in the current state and the inverse for the probability of transitioning between states. In the global model we expect mean annual temperatures between air and water to be positively correlated and water to be bound by zero, therefore we applied positive prior expectations on the slope ($\sim \mathcal{N}(0.1,0.5)$) and intercept ($\sim \mathcal{N}(1,.5)$) parameters of eq. $\ref{eq7}$. All variance parameters in the global and state models were given broad *student-t* distributions to allow for extreme outlier values while also constraining the parameters to predomintely reasonable values.
+Weakly informative priors were used for the transition state and global model parameters. We expect when temperature data are in a given state, they are more likely to remain in that state than transition to another state. Therefore, we applied beta priors with shape parameters $alpha$ = 10 and $beta$ = 2 for the probability of remaining in the current state and the inverse for the probability of transitioning between states. In the global model we expect mean annual temperatures between air and water to be positively correlated and water to be bound by zero, therefore we applied positive prior expectations on the slope ($\sim \mathcal{N}(0.1,0.1)$) and intercept ($\sim \mathcal{N}(1,.5)$) parameters of eq. $\ref{eq7}$. All variance parameters in the global and state models were given broad *student t* distributions to allow for extreme outlier values while also constraining the parameters to predomintely reasonable values.
 
 
-Moderately informative priors and fixed values were applied to some parameters where more is known about their likely values. By extracting mean annual air temperatures and associated annual temperature range estimates from the climate tool ClimateBC [@Wang:2012], we were able to provide locally adjusted (e.g., elevation, latitude), normally distributed $\alpha_{a}$ and $A_{a}$ parameter estimates (known under simulation). Following the logic behind our global model (i.e., eq. $\ref{eq8}$), we used ClimateBC air parameter estimates to provide the mean water temperature $\alpha_{w}$ and amplitude $A_{w}$ parameters moderately strong priors ($\sigma$ = 5), unless mean annual air temperatures were below 0$\text{\textdegree}$C, then we defaulted to a value of 2$\text{\textdegree}$C. Due to our knowledge of seasonal cycles we estimated $\tau$ for the air and water state assuming peak mean temperature values occur near mid-July. By evenly distributing $\tau$ values ranging from 0 to 2 between July-15^th^ to the same date of the subsequent year, we used the date of our first temperature observation to generate a strong ($\sigma$ = 0.05) normally distributed prior.
+Moderately informative priors and fixed values were applied to some parameters where more is known about their likely values. By extracting mean annual air temperatures and associated annual temperature range estimates from the climate tool ClimateBC [@Wang:2012], we were able to provide locally adjusted (e.g., elevation, latitude), normally distributed $\alpha_{a}$ and $A_{a}$ parameter estimates (known under simulation). Following the logic behind our global model (i.e., eq. $\ref{eq8}$), we used ClimateBC air parameter estimates to provide the mean water temperature $\alpha_{w}$ and amplitude $A_{w}$ parameters moderately strong priors ($\sigma$ = 5), unless mean annual air temperatures were below 0$\text{\textdegree}$C, then we defaulted to a value of 2$\text{\textdegree}$C. Due to our knowledge of seasonal cycles we estimated $\tau$ for the air and water state assuming peak mean temperature values occur near mid-July. By evenly distributing $\tau$ values ranging from 0 to 2 between July-15^th^ to the same date of the subsequent year, we used the date of our first temperature observation to generate a strong ($\sigma$ = 0.02) normally distributed prior.
 
 We were able to directly calculated the parameter values in eq.$\ref{eq5}$ because temperature cycles occur at regular intervals. Each year typically contains 365 days with 366 in leap years. Thus our $\gamma$ value is typically some multiplication of 365 depending on the temperature sampling frequency. In this study, we averaged our temperature estimates to daily values so $\gamma$ equals 365 and each observation takes on an ordered $d$ value between 1 and $\gamma$. If we had hourly data, we would simply multiply 365 by 24 resulting in 8760 data points per year.
 
@@ -173,58 +173,49 @@ The simulted data offer the advantage of having known and estimated source value
 
 *Simulation*
 
-Our HMM's temperature source estimation was strongly coherent with the known source in our simulated data, demonstrating an overal error rate of 0.44% (*n* = 7300). The error rate varied by site ranging as high as 1.64% (*n* = 365) with a median error rate of 0.27% and encouragingly the most common error rate was 0%. In other words, the highest error rate mislabeled 6 of the 365 days but typically only 1 day was mislabeled.  
+Our HMM's temperature source estimation was strongly coherent with the known source in our simulated data, demonstrating an overal error rate of 0.7% (*days* = 14,600). The error rate varied by site ranging as high as 4.52% (*days* = 730) while the most common error rate was 0%. In other words, the highest error rate mislabeled 17 days in a year but typically the model was entirely accurate.  
 
 \begin{landscape}
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=9in]{../images/Probs_Sim.pdf}
-	\caption{The daily probability that water is the thermal source of temperature readings for 20 simulated annual temperature profiles. Points indicate simulated mean daily air or water temperatures and are colored by the modelled probabilities of the source deriving from water. Lines indicate the estimated mean annual temperature curve and their associated variance estimate for air (green) and water (purple).}
+\includegraphics[width=8in]{../images/Error_Plot_Combined.png}
+	\caption{The daily estimated temperature source given a probability criteria of 63\% and the probability the observation is derived from water for 20 simulated annual temperature profiles. Points indicate simulated mean daily air or water temperatures and are colored by their estimated thermal source (i.e., water>63\%, air<50\%, 50\%>uncertain<63\%). Lines indicate the estimated mean annual temperature curves for air and water. Vertical lines along the x-axis indicate temperature source estimation errors. Each panel gives the relative error fequency of known water estimates being mislabelled (type I) and known air estimates being labelled water (type II).}
 \label{fig:1}
 \end{figure}
 
 \end{landscape}
 
-Overal the state models and uncertainty estimates for each site strongly fit the data even when sites were nearly or fully devoid of data describing the state (Fig. $\ref{fig:1}$). Our certainty in the source of temperature changed seasonally with strong probabilities during the summer and winter months, and weaker probabilities during the fall and spring (Figure $\ref{fig:1}$). In fact, errors exclusively occurred at the intersection of the two states (Figure $\ref{fig:2}$), during the period of seasonal transition when air and water temperatures are very similar.
+Overal the state model estimates for each site strongly fit the data even when sites were nearly or fully devoid of data describing the state (Fig. $\ref{fig:1}$). Our certainty in the source of temperature changed seasonally with weak probabilities occurring primarily during fall and late winter (Fig. $\ref{fig:1}$). In fact, errors exclusively occurred at the intersection of the two states (Fig. $\ref{fig:1}$), during the period of seasonal transition when air and water temperatures are very similar.
 
-\begin{landscape}
+On average we were slightly more likely to make a type I error and label air data as water than a type II error and mislabel water data when forward filtering the data (Fig. $\ref{fig:2}$ -- left panel). Indeed, 61% of errors were type I (*days*=71) while 39% were type II (*n*=46). By increasing our certainty boundary for water above 50% our type I errors declined while type II errors increased (Fig. $\ref{fig:2}$ -- left panel). By adjusting our certainty limit to 63% we can balance the error types and reduce type I errors (*days*=67), at the cost of a 50% increase in type II errors (*n*=66). This amounts to a total increase of mislabeled data from 117 days to 133 with the excess being labelled 'uncertain' rather than a specific source. In general the total number of errors increases slowly with increased certainty requirements and exponentially increases upon nearing a certainty requirement of 100%.
 
-\begin{figure}[h]
-\centering
-\includegraphics[width=9in]{../images/Error_Plot.pdf}
-	\caption{Thermal source estimates for water (blue) and air (yellow) given temperature source probabilty cut-offs of 87.8\% and 50\% respectivley (see Fig. \ref{fig:1}) for 20 simlulated sites. The modelled mean annual temperature profiles are described by solid black lines with surrounding uncertainty for air (green) and water (purple). Uncertain data points (purple) indicate temperatures sources probability estimates of less than 50\% certainty for air and 87.8\% for water. Vertical lines along the x-axis (i.e., rug-plot) indicate the location of labeling errors.}
-\label{fig:2}
-\end{figure}
-
-\end{landscape}
-
-On average we were slightly more likely to make a type I error and label air data as water than a type II error, labeling water data as air (Figure $\ref{fig:3}$). Indeed, 56% of errors were type I (*n*=18) while 44% were type II (*n*=14). By increasing our certainty boundary for water above 50% our type I errors declined exponentially while type II errors increased exponentially (Figure $\ref{fig:3}$). By adjusting our certainty limit to 87.8% we can nearly eliminate type I errors (*n*=1), at the cost of tripling type II errors (*n*=41). Without the certainty adjstment, the absolute value type I errors were never greater than 4 and type II errors were never greater than 2 at any given site. 
+Smoothing the data considers not only the contribution of the source probabilities leading temporally up to a given data point but also considers the probability of the subsequent data [see @Damiano:2017]. In this way we assume that if the data before and after a data point are likely in a certain state, then the data point in question is more likely in that same state. In applying this *post-hoc* method we see that our type I error rates increase slightly over the standard forward filter but our type II error rates are reduced (Fig. $\ref{fig:2}$ -- right panel). We also noticed that as our certainty requirments increased, error rates change minimally until the certainty cutoff nearly reaches 100%.
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=6.5in]{../images/Error_Type.pdf}
-	\caption{Changing error type frequency with increasing water source certainty given 365 days at 20 simulated sites (\textit{n} = 7300). Type I error (purple line) indicates how often the model mistakenly labled air temperature as water while the type II error (blue) indicates how often water temperature data was mislabled air or uncertain.}
-\label{fig:3}
+	\caption{The change in error type frequency with increasing water source certainty requirments, for 730 days at 20 simulated sites (\textit{days} = 14,600). Type I error (purple line) indicates how often the model mistakenly labeled air temperature as water while the type II error (blue) indicates how often water temperature data was mislabeled air or uncertain. The dotted line indicates the total number of mislabelled data as water state certainty requirements increase. The dark bands indicate 50\% credibility intervals and lighter bands indicate 95\% credibility intervals}
+\label{fig:2}
 \end{figure}
 
-The global models were able to identify the true $\alpha_{w}$ and $A_{w}$ values among sites, as indicated by the close proximity of the data to the 1:1 line (Figure $\ref{fig:4}$). This global model clearly contributes to water coefficient estimates as even sites with limited water data overcome their priors and shift near the 1:1 line. As a result, the global model increases the certainty of the water state and likely leads to the observed type I error bias when states intersect.
+The global models identified the true $\alpha_{w}$ and $A_{w}$ values among sites, as indicated by the close proximity of the data to the 1:1 line (Figure $\ref{fig:3}$). Certainty around the estimates were nearly non-existent reflecting the large degree of water data available at each site and the limited variation in the data. This did lead to parameter estimates where the uncertainty boundaries did not overlap the 1:1 line but this was to an insignificant degree in practical terms and is likely a result of flexibility in the snow adjustment. The global model contributes to the certainty of these coefficient estimates which likely leads to the observed type I error bias when states intersect.
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=6.5in]{../images/Global_Sim.pdf}
-	\caption{Simulated mean annual water temperature (\textbf{left}, $\alpha_{w}$) and temperature range (\textbf{right}, $A_{w}$) coefficient recovery by HMM. Pior estimates (open blue circles) and their subsequent fits (closed purple circles). The dotted line indicates 1:1 or perfect estimation of the known parameter by the HMM.}
-\label{fig:4}
+	\caption{Simulated temperature range (\textbf{left}, $A_{w}$) and mean annual water temperature (\textbf{right}, $\alpha_{w}$) coefficient recovery by the HMM. Points indicate prior estimates (open blue circles) and their subsequent fits (closed purple circles). The dotted line indicates 1:1 or perfect estimation of the known parameter.}
+\label{fig:3}
 \end{figure}
 
-<!--
-\begin{figure}[h]
+The observed relationship between the mean annual air temperature and the mean annual water temperature was extremly strong, suggesting the model is incredibly informative especially at sites that may have limited observed data. Similarly, the relationship between the mean annual water temperature and the range of temperatures around the mean was strongly positive.
+
+\begin{figure}[H]
 \centering
 \includegraphics[width=6.5in]{../images/Global_Obs.pdf}
-	\caption{}
-\label{fig:6}
+	\caption{Estimated relationship between the mean annual air temperature ($\alpha_{a}$) and the mean annual water temperature ($\alpha_{w}$, \textbf{left}) and the relationship between the mean annual water temperature and annual range of water temperature around the mean ($A_{w}$, \textbf{right}). Dark bands indicate 50\% credibility intervals and light bands indicate 95\% credibility intervals while the dotted lines indicate the mean estimate.}
+\label{fig:4}
 \end{figure}
--->
 
 #Discussion
 
@@ -251,7 +242,7 @@ Water and air temperatures are strongly correlated at a variety of time scales w
 
 The global models used in our HMM strongly faciliate accurate model fits when air or water temperature data are missing in a given dataset (e.g., Figs. $\ref{fig:1}$, $\ref{fig:2}$). As demonstrated, the global model overcame the coefficient piors in our simulation (Fig. $\ref{fig:4}$) and fit the known coefficient estimates very well. Furthermore, while our simulation was built using the logistic function, log transforming our mean response ($\alpha_{w}$) seems sufficient to capture the lower portion of the logistic curve. This simplification of our global model allowed us to estimate fewer parameters and linearize the model. Unfortunately, as mean annual air temperatures increase at lower latitudes the log transformation may lead to over-estimation of mean annual water temperatures ($\alpha_{w}$). A possible solution would be to *logit* transform the response ($\alpha_{w}$) thereby linearizing the logistic function, limiting parameter estimation and capturing the complete logistic curve. We did not utilize this transformation here because the data need to be scaled between 0 and 1 but the upper bound on mean annual stream temperatures is unknown. A similar limitation occurs in the global model governing stream temperature amplitude ($A_{w}$) in equation $\ref{eq8}$. We expect that as stream temperatures are no longer lower bound by 0$\text{\textdegree}$C at lower latitude and elevation, that the seasonal amplitude ($A$) will no longer reflect the mean annual water temperature ($\alpha_{w}$). As such these global models limit this HMM to locations that experience a period of freezing in their annual temperature cycle.
 
-Higher order markov model may clean-up the mislabled data the intersection.
+Higher order markov model may clean-up the mislabeled data the intersection.
 
 Limits of non-paired data when comparing air and water observations with modeled estimates.
 
