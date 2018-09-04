@@ -1,7 +1,7 @@
 #Read in
 library(tidyverse);library(rclimateca)
 
-locations = read_csv("~/sfuvault/Simon_Fraser_University/PhD_Research/Projects/Data/Original_Data/GIS_Data/Env_CA_Weather_Stn.csv")
+locations = read_csv("~/sfuvault/Data/Original_Data/GIS_Data/Env_CA_Weather_Stn.csv")
 
 loc = locations %>% .$STN_NAME %>% unique(.)
 
