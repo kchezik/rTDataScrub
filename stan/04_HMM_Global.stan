@@ -44,7 +44,7 @@ parameters {
   real b_alpha_w;                 // Mean water temperature at mean air of 0ºC
   real<lower=0> m_alpha_w;        // Change in mean water temperature with 1ºC increase in mean air T
   real<lower=0> sigma_alpha_w;    // Mean water temperature variance
-  real<lower=0> sigma_A;          // Water amplitude variance
+  //real<lower=0> sigma_A;          // Water amplitude variance
   real<lower=0> mu_sigma_Water;   // Mean water temperature variance across sites
   real<lower=0> sigma_Water;      // Variance around the global mean water temperature variance
   real<lower=0> mu_sigma_Air;     // Mean air temperature variance across sites
@@ -71,37 +71,29 @@ transformed parameters {
 
     for (t in 1:N) {
       // initial estimate
-      if(reset[t] == 1){
-        //Water
-        mu[1]= alpha_w[site[t]]+ A[site[t],1]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],1]*pi());
-        spring = stream_snow(n[t],d[t],tau_est[site[t],1]);
-        unalpha_tk[t,1]= log(0.5)+ student_t_lpdf(y[t]|3, (mu[1]+ spring* snow_w[site[t]]), sigma[site[t],1]);
-
-        //Air
-        mu[2]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],2]*pi());
-        unalpha_tk[t,2]= log(0.5)+ student_t_lpdf(y[t]|3, mu[2], sigma[site[t],2]);
-      }
-      else {
         for (j in 1:K) {    // j = current (t) or transition state column.
           for (i in 1:K) {  // i = previous (t-1) or transition state row.
                             // Murphy (2012) Eq. 17.48
                             // belief state + transition prob + local evidence at t
-              if(j == 1){
-                //Water
-                mu[j]= alpha_w[site[t]]+ A[site[t],j]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
-                spring = stream_snow(n[t],d[t],tau_est[site[t],j]);
-                accumulator[i]= unalpha_tk[t-1,i] + log(A_ij[i,j]) +
-                                 student_t_lpdf(y[t]|3, (mu[j]+ spring* snow_w[site[t]]), sigma[site[t],j]);
-              }
-              if(j == 2){
-                //Air
-                mu[j]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
-                accumulator[i]= unalpha_tk[t-1,i]+ log(A_ij[i,j])+
-                                student_t_lpdf(y[t]|3, mu[j], sigma[site[t],j]);
-              }
-          }
-          unalpha_tk[t, j] = log_sum_exp(accumulator);
+           if(j == 1){
+             //Water
+             mu[j]= alpha_w[site[t]]+ A[site[t],j]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
+             spring = stream_snow(n[t],d[t],tau_est[site[t],j]);
+             accumulator[i]= log(A_ij[i,j])+
+                             student_t_lpdf(y[t]|3, (mu[j]+ spring* snow_w[site[t]]), sigma[site[t],j]);
+
+             //if data is continuous consider previous data points' likelihood
+             if(reset[t]==0) accumulator[i] = accumulator[i]+ unalpha_tk[t-1,i];
+           }
+           if(j == 2){
+             //Air
+             mu[j]= air_mean[site[t]]+ air_A[site[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
+             accumulator[i]= log(A_ij[i,j])+ student_t_lpdf(y[t]|3, mu[j], sigma[site[t],j]);
+             //if data is continuous consider previous data points' likelihood
+             if(reset[t]==0) accumulator[i]= accumulator[i]+ unalpha_tk[t-1,i];
+           }
         }
+       unalpha_tk[t, j] = log_sum_exp(accumulator);
       }
     }
   } // Forward
@@ -120,7 +112,7 @@ model {
       b_alpha_w ~ normal(1,.5);
       sigma_alpha_w ~ student_t(3,0,1);
     //Water temperature amplitude
-      sigma_A ~ student_t(3,0.5,1);
+      //sigma_A ~ student_t(3,0.5,1);
     //Water amplitude variance
       mu_sigma_Water ~ student_t(3,1,1);
       sigma_Water ~ student_t(3,0,1);
@@ -148,14 +140,14 @@ model {
 
   // Global mean temperature, amplitude and variance models
     log(alpha_w) ~ normal(b_alpha_w + m_alpha_w*air_mean, sigma_alpha_w);  //mean
-    A[,1] ~ normal(alpha_w, sigma_A);                                      //amplitude
+    //A[,1] ~ normal(alpha_w, sigma_A);                                      //amplitude
     sigma[,1] ~ normal(mu_sigma_Water, sigma_Water);                       //water
     sigma[,2] ~ normal(mu_sigma_Air, sigma_Air);                           //air
 
   // Return log probabilities for each model.
     target += -log(alpha_w); // Add the Jacobian Adjustment
     for(t in 1:S){
-      target += log_sum_exp(unalpha_tk[accum[t]]); // Note: update based only on last unalpha_tk
+      target += log_sum_exp(unalpha_tk[accum[t]]); // Note: update based only on last unalpha_tk for each site
     }
 }
 
@@ -189,8 +181,8 @@ generated quantities {
       t = N - tforward;
 
       for (j in 1:K) {  // j = previous (t-1)
-        // Reset logbeta at each new site
-        if(tforward!=0 && reset[t-1]==2){
+        // Reset logbeta at each new site or data gap
+        if(reset[t]==1){
            logbeta[t-1,j] = 1;
         }
         // Otherwise, provide probability information for next datapoint.
@@ -203,7 +195,7 @@ generated quantities {
               mu_gen[i]= alpha_w[site[t]]+ A[site[t],i]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],i]*pi());
               spring_gen = stream_snow(n[t],d[t],tau_est[site[t],i]);
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                                student_t_lpdf(y[t]|3, (mu_gen[i]+ spring_gen* snow_w[site[t]]), sigma[site[t],i]);
+                              student_t_lpdf(y[t]|3, (mu_gen[i]+ spring_gen* snow_w[site[t]]), sigma[site[t],i]);
             }
             if(i == 2){
               //Air

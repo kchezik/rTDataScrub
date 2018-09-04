@@ -7,7 +7,7 @@ output: html_document
 
 ```{r StartUp Stan}
 #Get necessary libraries.
-library(tidyverse); library(rstan)
+library(tidyverse); library(rstan); library(lubridate)
 #Initiate cores and make sure unchanged models are not recompiled.
 options(mc.cores = parallel::detectCores(), auto_write = TRUE)
 ```
@@ -372,9 +372,9 @@ prob_plot = function(mod, date, temperature, air = NULL, smooth = T, err_perc = 
       legend.text = element_text(size = 8), plot.title = element_text(size = 9)) +
     guides(colour = guide_legend(title.position="top"))
   
-  p = gridExtra::grid.arrange(p1p, p1, p1f, layout_matrix = matrix(data = c(1,2,2,3,3), nrow = 5, ncol = 1))
-  ggsave(filename = "probPlot.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 4.25, height = 6.5, units = "in", device = "pdf")
-  #list(p1p,p1,p1f)
+  #p = gridExtra::grid.arrange(p1p, p1, p1f, layout_matrix = matrix(data = c(1,2,2,3,3), nrow = 5, ncol = 1))
+  #ggsave(filename = "probPlot.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 4.25, height = 6.5, units = "in", device = "pdf")
+  list(p1p,p1,p1f)
 }
 ```
 
@@ -530,7 +530,7 @@ mod = sampling(compile, data= list(N = nrow(df_T), K = 2,
                control = list(adapt_delta = .8, max_treedepth = 10), save_warmup = F)
 
 #Plot
-prob_plot(mod, df_T$day, df_T$temperature, air = air, smooth = F,
+p_single = prob_plot(mod, df_T$day, df_T$temperature, air = air, smooth = F,
           bc_climate = list(air_mean = df_inits$air_mean, air_A = df_inits$air_A))
 ```
 
@@ -704,33 +704,36 @@ error = bind_rows(typeI, typeII)
 
 #Plot error rates
 p1 = ggplot(error) + 
+  geom_line(data = error %>% group_by(percent) %>% summarise(total = sum(fp_fit)),
+            aes(percent, total), linetype = 3) +
   geom_ribbon(aes(percent, ymin = fp_lower, ymax = fp_upper, fill=errorType), alpha = .08) +
   geom_ribbon(aes(percent, ymin = fp_lower_mid, ymax = fp_upper_mid, fill=errorType), alpha = .08) +
   geom_line(aes(percent,fp_fit,col=errorType), linetype = 1) + 
-  #geom_line(aes(percent,sp_fit,col=errorType), linetype = 2) + 
   scale_y_log10(breaks = c(10,100,1000), labels = c("10","100","1000"), limits = c(10,1000)) +
-  scale_color_manual(values = c("#45062e","#2b6aff"),breaks = c("typeI","typeII"),
-                     labels = c("type I","type II")) +
+  scale_color_manual(values = c("#45062e","#2b6aff"), breaks = c("typeI","typeII"),
+                     labels = c("type I","type II"), name = "Filtered Probabilities") +
   scale_fill_manual(values = c("#45062e","#2b6aff")) +
   ggthemes::theme_tufte() +
   theme(legend.direction = "horizontal", legend.position = "top",
         title = element_text(size=8),
         strip.text = element_text(size=8),
         axis.text = element_text(size = 8), 
-        legend.title = element_blank()) +
-  guides(fill = F) +
+        legend.title = element_text(size = 10),
+        legend.title.align = .5) +
+  guides(fill = F, colour = guide_legend(title.position = "top")) +
   labs(y = "Number of Errors", 
-       x = "Water Certainty Cutoff (%)",
-       title = "Filtered Probabilities")
+       x = "Water Certainty Cutoff (%)")
 
 p2 = ggplot(error) + 
+  geom_line(data = error %>% group_by(percent) %>% summarise(total = sum(sp_fit)),
+            aes(percent, total), linetype = 3) +
   geom_ribbon(aes(percent, ymin = sp_lower, ymax = sp_upper, fill=errorType), alpha = .08) +
   geom_ribbon(aes(percent, ymin = sp_lower_mid, ymax = sp_upper_mid, fill=errorType), alpha = .08) +
   #geom_line(aes(percent,fp_fit,col=errorType), linetype = 1) + 
   geom_line(aes(percent,sp_fit,col=errorType), linetype = 2) + 
   scale_y_log10(breaks = c(10,100,1000), labels = c("10","100","1000"), limits = c(10,1000)) +
   scale_color_manual(values = c("#45062e","#2b6aff"),breaks = c("typeI","typeII"),
-                     labels = c("type I","type II")) +
+                     labels = c("type I","type II"), name = "Smoothed Probabilities") +
   scale_fill_manual(values = c("#45062e","#2b6aff")) +
   ggthemes::theme_tufte() +
   theme(legend.direction = "horizontal", legend.position = "top",
@@ -738,11 +741,11 @@ p2 = ggplot(error) +
         strip.text = element_text(size=8),
         axis.text = element_text(size = 8),
         axis.title.y.left = element_blank(),
-        legend.title = element_blank()) +
-  guides(fill = F) +
+        legend.title = element_text(size = 10),
+        legend.title.align = .5) +
+  guides(fill = F, colour = guide_legend(title.position = "top")) +
   labs(y = "Number of Errors", 
-       x = "Water Certainty Cutoff (%)",
-       title = "Smoothed Probabilities")
+       x = "Water Certainty Cutoff (%)")
 p = gridExtra::grid.arrange(p1,p2,layout_matrix = matrix(data = c(1,2), nrow = 1, ncol = 2))
 ggsave(filename = "Error_Type.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 7.5, height = 3.5, units = "in", device = "pdf")
 
@@ -846,11 +849,16 @@ p = ggplot(data = fit, aes(time,temperature)) +
   geom_text(data = percent_error, aes(x = x_pos, y = y_pos, label = site), hjust = "left", size = 2.3)
 ggsave(filename = "Error_Plot.png", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "png", dpi = 500, bg = "transparent")
 
-#Variance around mean water and ground temperature.
-temp = temp %>% mutate(
-  upper_w = mean_w + qt(.95,3)*sigma,
-  lower_w = mean_w - qt(.95,3)*sigma) %>%
-  select(-c(6:11))
+#Statistics
+overall = 1-sum(fit$s_error)/nrow(fit)
+by_site = fit %>% group_by(site) %>% summarise(error_rate = (1-(sum(s_error)/n()))*100,
+                                     n = n())
+mean(by_site$error_rate)
+.0452*365
+.007 *365
+
+head(error)
+
 ```
 
 Now we can apply our Hierarchical HMM to raw stream temperature data in the North Thompson. Something to consider and possibly include in our model is a random effect of A and alpha by year to adjust for inter-annual changes.
@@ -858,7 +866,7 @@ Now we can apply our Hierarchical HMM to raw stream temperature data in the Nort
 ```{r Thompson Watershed Hierarchical HMM}
 #Read in climate data and summarize by year.
 df_inits = read_rds("./Data/thompson_air_inits.rds") %>%
-  group_by(site) %>% summarise(air_mean = mean(air_mean), air_A = mean(air_A)/2)
+  group_by(site) %>% summarise(air_mean = mean(air_mean), air_A = mean(air_A))
 
 #Read in water temperature data and remove site 102 as it is lake temperature.
 df_T = read_rds("./Data/thompson_water.rds") %>% filter(site != 103)
@@ -869,7 +877,7 @@ ref = df_T %>% select(site) %>% distinct() %>% mutate(new_id = c(1:n()))
 #Summarize the water temperature data to the daily level, 
 # add new site ID, numer the observations continuously (i.e., d) in each site, and
 # add the number of days in a cycle for each year.
-df_dT = df_T %>% mutate(year = lubridate::year(date), 
+df_dT_orig = df_T %>% mutate(year = lubridate::year(date), 
                         day = lubridate::floor_date(date, unit = "day"), 
                         doy = lubridate::yday(date)) %>%
   group_by(site, year, day, doy) %>% summarise(temperature = mean(temperature)) %>% 
@@ -877,6 +885,13 @@ df_dT = df_T %>% mutate(year = lubridate::year(date),
   mutate(d = yday(day - days(x=yday(day[1])-1)),
          reset = if_else(day==min(day),1,if_else(day==max(day),2,0))) %>% 
   group_by(site, year) %>% mutate(n_cycle = n_init(day))
+
+#Remove temperatures less than 1.
+df_dT = df_dT_orig %>% filter(temperature>1 | reset>0)
+
+# add flag noting data gaps for forward and backward smoothing
+logic = (diff(df_dT$day)>1 & df_dT$reset[-1] == 0)
+df_dT[c(FALSE,logic),"reset"] = 1
 
 #Add the climate inits with estimates of tau.
 df_inits = df_dT %>% group_by(site) %>% 
@@ -906,41 +921,25 @@ mod = sampling(compile, data= list(N = length(df_dT$temperature),
                pars = c("b_alpha_w","m_alpha_w",
                         "alpha_w","A","tau_est","snow_w","sigma",
                         "alpha_tk","gamma"),
-               init = inits, warmup = 500, iter = 1000, chains = 4, thin = 2,
+               init = inits, iter = 100, chains = 4, thin = 1,
                control = list(adapt_delta = .8, max_treedepth = 10),
-               save_warmup = F, sample_file = "./stan/Mod_Results/04_HMM_Global_Samples.csv")
+               save_warmup = T, sample_file = "./stan/Mod_Results/04_HMM_Global_Samples.csv")
 
+shinystan::launch_shinystan(mod)
 
 #Read in model.
-mod = read_rds(path = "./stan/Mod_Results/GWA_250_obs_mod.rds")
-#mod = read_rds(path = "./stan/Mod_Results/GWA_1000_obs_mod.rds")
+mod = read_rds(path = "./stan/Mod_Results/04_HMM_Global_500_Obs.rds")
 
 #---- Gather & Organize Coefficients ----#
-cf1 = broom::tidy(mod, pars = c("A","tau_est"), "median") %>%
-  select(-std.error) %>% 
-  mutate(
-    new_id = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+",simplify = T)[,1]),
-    model = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+",simplify = T)[,2]),
-    coef = stringr::str_extract_all(term, "\\w+", simplify = T)[,1]
-  ) %>% 
-  select(-term)
 
-cf2 = broom::tidy(mod, pars = c("alpha_a","alpha_w"), "median") %>%
-  select(-std.error) %>% 
-  mutate(new_id = as.numeric(stringr::str_extract_all(string = term, pattern = "\\d+(?=\\])",simplify = T)),
-         model = c(rep(2,101),rep(1,101)),
-         coef = stringr::str_extract_all(term, "\\w+", simplify = T)[,1]) %>% 
-  select(-term)
+#Coefficients
+cf = rstan::extract(mod, pars = c("alpha_w","A","tau_est","snow_w","alpha_tk","gamma"))
 
-cf = rbind(cf1,cf2) %>% spread(key = coef, value = estimate)
-
-#---- Organize Site Coef. Estimates Priors ----#
-global =data.frame(new_id = c(cf[cf$model==1,"new_id"],cf[cf$model==2,"new_id"]),
-                   air = c(cf[cf$model==2,c("alpha_a")],cf[cf$model==2,c("A")]),
-                   water = c(cf[cf$model==1,c("alpha_w")],cf[cf$model==1,c("A")]),
-                   parameter = c(rep("alpha",101),rep("A",101)),
-                   air_prior = c(inits[[1]]$alpha_air,inits[[1]]$A[,2]),
-                   water_prior = c(inits[[1]]$alpha_water,inits[[1]]$A[,1]))
+#Site alpha and A summary/join with known values and priors
+alpha = data.frame(t(apply(cf$alpha_w, 2, `quantile`, probs = c(0.025,.25,0.5,.75,.975)))) %>% mutate(param = "alpha[w]")
+A = data.frame(t(apply(cf$A[,,1], 2, `quantile`, probs = c(0.025,.25,0.5,.75,.975)))) %>% mutate(param = "A[w]")
+global = df_inits %>% select(air_mean, air_A) %>% gather(key = obs_param, value = observed)
+global = bind_rows(alpha,A) %>% rename(lower = X2.5., lower_mid = X25., fit = X50., upper_mid = X75., upper = X97.5.) %>% bind_cols(.,global) %>% mutate(prior = c(inits[[1]]$alpha_w, inits[[1]]$A[,1]))
 
 #---- Gather and Spread Global Parameter Estimates ----#
 global_pa = rstan::extract(mod, pars = c("m_alpha_w","b_alpha_w"))
@@ -949,8 +948,7 @@ global_pA = rstan::extract(mod, pars = "A")
 
 
 #---- Fit and Plot Global Models ----#
-air = c(seq(min(global[global$parameter=="alpha","air"]),
-                  max(global[global$parameter=="alpha","air"]), by = 0.1))
+air = seq(min(df_inits$air_mean), max(df_inits$air_mean), by = 0.1)
 fit = data.frame(t(sapply(air, FUN = function(x){
   quantile(exp(global_pa$b_alpha_w + global_pa$m_alpha_w * x), probs = c(0.025,.25,0.5,.75,.975))
 })))
@@ -960,16 +958,16 @@ fit_A = data.frame(t(apply(global_pA$A, 2, function(x){
   quantile(x[,1], probs = c(0.025,.25,0.5,.75,.975))
 })))
 fit_A = fit_A %>% rename(lower = X2.5., lower_mid = X25., fit = X50., upper_mid = X75., upper = X97.5.) %>% 
-  mutate(water = global[global$parameter == "alpha","water"])
+  mutate(water = global[global$param == "alpha[w]","fit"])
 
 
 #---- Plot Alpha_a vs. Alpha_a ----#
 gp1 = ggplot() +
   geom_ribbon(data = fit, aes(x = air, ymin = lower, ymax = upper), alpha = 0.08) +
   geom_ribbon(data = fit, aes(x = air, ymin = lower_mid, ymax = upper_mid), alpha = 0.05) +
-  #geom_line(data = global %>% filter(parameter == "alpha"),
-  #           aes(air_prior, water_prior), color = "blue", alpha = .5) +
-  geom_point(data = global %>% filter(parameter == "alpha", water < 10), aes(air, water), 
+  geom_point(data = global %>% filter(param == "alpha[w]"),
+             aes(observed, prior), color = "royalblue", alpha = .2) +
+  geom_point(data = global %>% filter(param == "alpha[w]"), aes(observed, fit), 
              col = "#45062e", shape = 19, size = .8) +
   geom_line(data = fit, aes(air, fit), linetype = 2, size = .3) +
   ggthemes::theme_tufte() +
@@ -980,7 +978,7 @@ gp1 = ggplot() +
        y = expression("Mean Annual Water Temperature ("*degree*"C)"))
 
 #---- Plot Alpha_w vs. A_w ----#
-gp2 = ggplot(data = fit_A %>% filter(water<10)) +
+gp2 = ggplot(data = fit_A) +
   geom_errorbar(aes(x = water, ymax=upper, ymin=lower), linetype = 1, size = .1, alpha = .3) +
   geom_errorbar(aes(x = water, ymax=upper_mid, ymin=lower_mid), linetype = 1, size = .3, alpha = .5) +
   geom_point(aes(water,fit),col = "#45062e", shape = 19, size = .8)+
@@ -999,6 +997,22 @@ ggsave(filename = "Global_Obs.pdf", path = "~/Documents/rTDataScrub/images", plo
 
 #---- Fit Individual Site Models ----#
 
+#Get state probability estimates and add to observed temperature dataframe.
+xi_est = broom::tidyMCMC(mod, pars = "gamma", estimate.method = "median", conf.int = F)
+#Extract row number of each state matrix linked to each observation.
+day = as.numeric(unlist(stringr::str_extract_all(string = xi_est$term, pattern = "\\d+(?=,)")))
+#Extract model type
+model = unlist(apply(xi_est, 1, function(x){
+  if(grepl(x = x[1],  pattern = "\\w+\\[\\d+,2\\]")) "air"
+  else if(grepl(x = x[1],  pattern = "\\w+\\[\\d+,1\\]")) "water"
+}))
+df_dT = xi_est %>% mutate(model,day) %>% select(-term, -std.error) %>% 
+  spread(data = ., key = model, value = estimate) %>% select(-day) %>% 
+  bind_cols(df_dT,.)
+
+#Add back value below 1ºC.
+df_dT = df_dT %>% select(site, year, doy, air, water) %>% left_join(df_dT_orig,.)
+
 #Read in air temperature data and bind to water temperature data
 air_obs = read_rds("./Data/thompson_air.rds") %>% group_by(place, date) %>% 
   summarise(air_temperature = mean(mean_temp_c, na.rm = T))
@@ -1008,26 +1022,13 @@ df_dT = left_join(df_dT,air_stream, by = "site")
 df_dT$day = ymd(df_dT$day)
 df_dT = left_join(df_dT,air_obs, by = c("air_site"="place","day"="date"))
 
-#Get state probability estimates and add to observed temperature dataframe.
-xi_est = broom::tidyMCMC(mod, pars = "gamma", estimate.method = "median", conf.int = F)
-#Extract row number of each state matrix linked to each observation.
-day = as.numeric(unlist(stringr::str_extract_all(string = xi_est$term, pattern = "\\d+(?=,)")))
-#Extract model type
-model = unlist(apply(xi_est, 1, function(x){
-  if(grepl(x = x[1],  pattern = "\\w+\\[\\d+,1\\]")) "air"
-  else if(grepl(x = x[1],  pattern = "\\w+\\[\\d+,2\\]")) "water"
-}))
-df_dT = xi_est %>% mutate(model,day) %>% select(-term, -std.error) %>% 
-  spread(data = ., key = model, value = estimate) %>% select(-day) %>% 
-  bind_cols(df_dT,.)
-
 #Create full date range.
 dates_full = data.frame(day = seq.Date(from = min(as.Date(df_dT$day)), to = max(as.Date(df_dT$day)), by = "day")) 
 
 #Incorporate full range of dates into each site for fitting and plotting.
 df_dT = df_dT %>% group_by(site) %>% do({
   temp = left_join(dates_full,.,by="day")
-  day_one = temp[temp$d==1 & !is.na(temp$d),"day"]
+  day_one = min(temp[temp$d==1 & !is.na(temp$d),"day"])
   temp$d = as.numeric((temp$day - day_one) + 1)
   temp$year = year(temp$day)
   temp$site = unique(.$site)
@@ -1037,26 +1038,33 @@ df_dT = df_dT %>% group_by(site) %>% do({
 })
 
 #Function for fitting full bayes site models
-fit_bayes = function(df, mod, source = "water"){
+fit_bayes = function(df,df_init=NULL, mod, source = "water"){
   df_dT %>% group_by(new_id) %>% do({
     site = unique(.$new_id)
     if(source == "water"){
-      alpha = rstan::extract(mod, "alpha_w")[[1]]
-      A = rstan::extract(mod, "A")[[1]][,,1]
-      tau = rstan::extract(mod, "tau_est")[[1]][,,2]
+      alpha = rstan::extract(mod, "alpha_w")$alpha_w[,site]
+      A = rstan::extract(mod, "A")$A[,site,1]
+      tau = rstan::extract(mod, "tau_est")$tau_est[,site,2]
+      snow = rstan::extract(mod, "snow_w")$snow_w[,site]
     } else {
-      alpha = rstan::extract(mod, "alpha_a")[[1]]
-      A = rstan::extract(mod, "A")[[1]][,,2]
-      tau = rstan::extract(mod, "tau_est")[[1]][,,1]
+      alpha = df_init$air_mean[site]
+      A = df_init$air_A[site]
+      tau = rstan::extract(mod, "tau_est")[[1]][,site,1]
     }
     data.frame(t(sapply(.$d, FUN = function(x){
-    quantile(alpha[,site] + A[,site]*cos(2*pi*x/365 + tau[,site]*pi), probs = c(0.025,.25,0.5,.75,.975))
+      if(source == "water"){
+        deriv = -sin(2*pi*x/365 + tau*pi)
+        spring = if_else(deriv>0,deriv,0) * snow
+        quantile((alpha + A*cos(2*pi*x/365 + tau*pi)) - spring, probs = c(0.025,.25,0.5,.75,.975))
+      } else {
+        quantile(alpha + A*cos(2*pi*x/365 + tau*pi), probs = c(0.025,.25,0.5,.75,.975))
+      }
   }))) %>% rename(lower = X2.5., lower_mid = X25., fit = X50., upper_mid = X75., upper = X97.5.)
   }) %>% bind_cols()
 }
 #Gather water and air temperature estimates.
-water = fit_bayes(df_dT, mod)
-air = fit_bayes(df_dT, mod, "air")
+water = fit_bayes(df = df_dT, mod = mod)
+air = fit_bayes(df = df_dT, df_init = df_inits, mod = mod, source = "air")
 #Rename columns
 names(water) = paste("water",names(water),sep = "_")
 names(air) = paste("air",names(air),sep = "_")
@@ -1090,19 +1098,18 @@ p = ggplot(data = p_df) +
   ylim(-25,25) +
   facet_wrap(nrow = 5, ncol = 2, facets = ~new_id) +
   geom_text(data = label, aes(x = x_ext[1], y = 23, label = site), hjust = "left", size = 2.3)
-ggsave(filename = "Probs_Obs.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "pdf")
+#ggsave(filename = "Probs_Obs.pdf", path = "~/Documents/rTDataScrub/images", plot = p, width = 13, height = 8.5, units = "in", device = "pdf")
 
 p_full = gridExtra::grid.arrange(p, p_single[[1]], p_single[[2]], p_single[[3]], 
                         layout_matrix = matrix(data = c(rep(1,10),2,3,3,4,4), nrow = 5, ncol = 3))
 ggsave(filename = "Probs_Obs_Full.pdf", path = "~/Documents/rTDataScrub/images", plot = p_full, width = 13, height = 8.5, units = "in", device = "pdf")
-
 ```
 
 After much tinkering we have chosen to linearize the global model described in the water only random effect model (i.e.,"water_rand.stan"). The model describing the steapness of the relationship seemed much too sensative, biasing mean water temperature estimates in the lower exponential part of the sigmoidal curve. We also included an amplitude global model that is approximately linear with the mean water temperature estimates. This model works for northern climate locations but I suspect will fail as we get closer to the equator where water temperature never nears 0ºC but rather are upper bound. This aspect of the model will be left for future development at this time. I've also discovered the importance of narrow priors on air and ground models and looser priors on water model parameters. By doing this we put the focus on estimating water parameters and less weight on partially known values such as air parameters. We expect that the data this model receives will mostly be water with limited air and often no ground temperature data. As such we want to make sure the data are primarily being used to inform the water model and less so the ground and air models.
 
 I believe that since the data are generated under a logistic curve and the model linearizes using a log transformation, it becomes difficult to not have bias in the global model where lower mean annual water temperature data is over estimated while larger values are under-estimated. How does one allow the fit of the data take priority over fitting the global model? 
 
-
+Some sites have long periods over the winter that flat line around zero and exhibit no seasonal cycle. This period of no cyclical variation leads to the model trying to fit these data by reducing the alpha_w and A values close to zero. This is particularly true at sites where water and air temperatures are very similar over the summer as the air model fits the summer data and then the water model is left to fit the winter data. We may need to address this problem as in Letcher (2016) and identify periods that don't show strong correlation with a cyclical pattern and eliminate or downweight their influence. Alternatively, this is where we need to identify a state change in the variance from high to extremely low when looking at difference data.
 
 
 ## Notes on Development
