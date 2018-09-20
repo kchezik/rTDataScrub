@@ -25,5 +25,6 @@ alpha = read_csv(annual) %>% group_by(ID1, Year) %>% summarise(air_mean = mean(M
 A = read_csv(season) %>% group_by(ID1, Year) %>% summarise(air_A = (max(Tmax_sm) + abs(min(Tmin_wt)))/2)
 #Bind air temperature statistics into single database.
 df_C = left_join(alpha,A) %>% rename(site = ID1, year = Year)
+
 #Export summary.
 write_rds(x = df_C, path = "./thompson_air_inits.rds")
