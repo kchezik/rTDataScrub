@@ -26,7 +26,7 @@ data {
   real y[N];                      // Observations
   real<lower=0> d[N];             // Data point d in n
   real<lower=0,upper=2> reset[N]; // First observation at a site (no=0, forwardYes=1, backwardYes=2)
-  int<lower=0> accum[S];          // Accumulate final row of each site towards target.
+  int<lower=0> accum[S];          // Accumulate final row of each site towards target
   vector<lower=0,upper=2>[S] tau; // Define location of annual cycle
   real<lower=0> n[N];             // Define the number of data points in a annual cycle
   vector<lower=0>[S] air_A;       // PRISM air annual temperature range (i.e., amplitude)
@@ -139,13 +139,12 @@ model {
     A[,2] ~ normal(air_A,0.01);
 
   // Global mean temperature, amplitude and variance models
-    log(alpha_w) ~ normal(b_alpha_w + m_alpha_w*air_mean, sigma_alpha_w);  //mean
+    alpha_w ~ normal(log(b_alpha_w + m_alpha_w*air_mean), sigma_alpha_w);  //mean
     //A[,1] ~ normal(alpha_w, sigma_A);                                      //amplitude
     sigma[,1] ~ normal(mu_sigma_Water, sigma_Water);                       //water
     sigma[,2] ~ normal(mu_sigma_Air, sigma_Air);                           //air
 
   // Return log probabilities for each model.
-    target += -log(alpha_w); // Add the Jacobian Adjustment
     for(t in 1:S){
       target += log_sum_exp(unalpha_tk[accum[t]]); // Note: update based only on last unalpha_tk for each site
     }
