@@ -100,7 +100,7 @@ generate = function(air_ends = F, air = F, years = 1, randomize = c(T,T), global
   snow = rbeta(1,1,1)*3
   
   #Seasonal Period Parameter
-  tao = rbeta(1,1,1)*2+0.035 # Randomize sampling period.
+  tao = rnorm(1,.9,.1)
   
   #Create Data.
   df = data.frame(
@@ -223,9 +223,7 @@ n_init = function(time){
     dur = as.numeric(as.character(dur[[1]]))[1]
     cc = as.numeric(dyears(1)/dur[1])
   }
-  if(leap_year(year(time[1]))) cc = cc + 1
-  else cc = cc
-  cc
+  if_else(leap_year(year(time)),cc+cc/365,cc)
 }
 
 #Build initial conditions for different numbers of chains.
@@ -235,14 +233,13 @@ create_inits = function(K = 2, A_ij = c(.9,.1,.1,.9), air_A, air_mean, chains = 
   init = list(A_ij = matrix(A_ij, nrow = K, ncol = K),
               A = matrix(data = c(air_mean,air_A), nrow=length(air_A) , ncol=2),
               alpha_w = if_else(air_mean>0,air_mean,2),
-              tau_est = matrix(c(.9,1.1,1.5),nrow = sites, ncol = 3,byrow = T))
+              tau_est = matrix(c(.85,.9),nrow = sites, ncol = 2,byrow = T))
   init$A[,1] = if_else(init$alpha_w<13.5, init$alpha_w, (27-init$alpha_w))
   init$A[,1] = if_else(init$A[,1]>=init$A[,2], init$A[,2]-.5, init$A[,1])
   
-  if(length(air_A) == 1){
-    init$A = init$A[1,]
-    init$tau_est = init$tau_est[1,]
-  }
+  #if(sites == 1){
+  #  init$tau_est = init$tau_est[1,]
+  #}
     
   #Replicate single list over n chains
   inits = list()
@@ -266,7 +263,7 @@ These functions offer plotting capabilities after running a Hidden Markov Model.
 ```{r Plot Probabilities}
 prob_plot = function(mod, date, temperature, air = NULL, smooth = T, err_perc = NULL,
                      bc_climate = list(air_mean = NA, air_A = NA),dur = "daily"){
-  
+
   #Build dataframe
   if(is.null(err_perc)) df = as.tibble(data.frame(date,temperature)) %>% arrange(date)
   else df = as.tibble(data.frame(date,temperature,source = err_perc)) %>% arrange(date) 
@@ -285,7 +282,7 @@ prob_plot = function(mod, date, temperature, air = NULL, smooth = T, err_perc = 
   #Produce full bayesian probabilities
   fit_w = data.frame(t(sapply(c(1:nrow(df)), function(x){
     quantile(cf$alpha_w + cf$A[,1] * cos(2*pi*df[x,"d"][[1]]/df[x,"n"][[1]] + cf$tau_est[,1]*pi) +
-               cf$snow*cos(2*pi*df[x,"d"][[1]]/(df[x,"n"][[1]]/2) + cf$tau_est[,3]*pi),
+               cf$snow*cos(2*pi*df[x,"d"][[1]]/(df[x,"n"][[1]]/2) + (cf$tau_est[,1]+0.65)*pi),
              probs = c(0.025,.25,0.5,.75,.975))
   }))) %>% 
     rename(w_lower = X2.5., w_lower_mid = X25., w_fit = X50., w_upper_mid = X75., w_upper = X97.5.)
@@ -347,9 +344,9 @@ prob_plot = function(mod, date, temperature, air = NULL, smooth = T, err_perc = 
   if(!is.null(air)){
     p1f = p1f + geom_point(data = air, aes(as.POSIXct(date), mean_temp_c),
                            color = "red", shape = 1, size = .3, alpha = .2) +
-      geom_line(aes(as.POSIXct(date), a_fit), size = .3) +
-      geom_ribbon(aes(as.POSIXct(date), ymin = a_lower, ymax = a_upper), 
-                alpha = .1, fill = "#ffc021")
+      geom_line(aes(as.POSIXct(date), a_fit), size = .3)
+      #geom_ribbon(aes(as.POSIXct(date), ymin = a_lower, ymax = a_upper), 
+      #          alpha = .1, fill = "#ffc021")
   }
   if(!is.null(err_perc)){
     p1f = p1f + geom_rug(data = filter(df, err == 19), aes(date, temperature), sides = "b")+
@@ -358,8 +355,8 @@ prob_plot = function(mod, date, temperature, air = NULL, smooth = T, err_perc = 
   
   p1f = p1f + geom_point(aes(color = est_source), size = 0.2, shape = 19) +
     geom_line(aes(date, w_fit), size = .3) +
-    geom_ribbon(aes(date, ymin = w_lower, ymax = w_upper), 
-                alpha = .1, fill = "#5b0982") +
+    #geom_ribbon(aes(date, ymin = w_lower, ymax = w_upper), 
+    #            alpha = .1, fill = "#5b0982") +
     scale_x_datetime(date_breaks = "3 month", date_labels = "%b") +
     scale_color_manual(values = c("water" = "#2b6aff", "air" = "#ffc021", "ground" = "#45062e")) +
     geom_hline(yintercept = 0, size = .2, linetype = 3) +
@@ -469,8 +466,6 @@ Now we need to combine the air and water temperature data and build a Hidden Mar
 df = multi_site(n = 1, years = 1, air_ends = T, air = T, randomize = c(F,F))
 inits = create_inits(air_A = df$coefs$air_A, air_mean = df$coefs$air_meanT, chains = 4)
 
-ggplot(df$daily, aes(time, temperature, color = source))  +geom_point()
-
 #Compile and run model.
 compile = stan_model("./stan/02_HMM.stan")
 mod = sampling(compile, data= list(N = nrow(df$daily), K = 2,
@@ -499,16 +494,17 @@ Now I will apply this model to a single year of real data and just see if it can
 
 #Daily
 #df = read_rds("./Data/thompson_daily_water_manual_clean.rds") %>% 
-#  filter(site==49, year(date)>2014, year(date)<2016) %>% 
+#  filter(site==49, year(date)==2014) %>% 
 #  mutate(n = n_init(date), d = yday(date))
+
 #Hourly
 df = read_rds("./Data/thompson_water.rds") %>% 
-  filter(site==49, year(date)>2014, year(date)<2016) %>% 
+  filter(site==39, year(date)==2015) %>% 
   mutate(n = n_init(date)*2, d = (yday(date)*24) + (hour(date)-24))
 
 #Read in ClimateBC air temperature approximations
 df_inits = read_rds("./Data/thompson_air_inits.rds") %>% 
-  filter(site == 49, year == 2015)
+  filter(site == 39, year == 2015)
 
 #Create initial values for the model
 inits = create_inits(air_A = df_inits$air_A, air_mean = df_inits$air_mean, chains = 4)
@@ -525,13 +521,17 @@ mod = sampling(compile, data= list(N = nrow(df), K = 2,
                                    n = df$n,
                                    d = df$d,
                                    air_A = df_inits$air_A,
-                                   air_mean = df_inits$air_mean),
-               pars = c("alpha_w","A","tau_est","snow","sigma","alpha_tk","gamma"),
-               init = inits, iter = 500, chains = 4, thin = 1,
+                                   air_mean = df_inits$air_mean,
+                                   precip = 1),
+               pars = c("accumulator","annual","season","annual_gen","season_gen",
+                        "unalpha_tk","logbeta","loggamma","beta"),
+               include = FALSE, init = inits, iter = 100, chains = 4, thin = 1,
                control = list(adapt_delta = .8, max_treedepth = 10), save_warmup = T)
 
+shinystan::launch_shinystan(mod)
+
 #Filter Plot
-p_single = prob_plot(mod, df$date, df$temperature, air = air, smooth = F,
+prob_plot(mod, df$date, df$temperature, air = air, smooth = F,
           bc_climate = list(air_mean = df_inits$air_mean, air_A = df_inits$air_A), dur = "hour")
 
 #Smoothed Plot
@@ -541,7 +541,63 @@ prob_plot(mod, df$date, df$temperature, air = air, smooth = T,
 
 In the real data, if we don't provide air mean and amplitude estimates the model appears to split the water temperature data in two, thereby sharing the same results with only marginal differences. I suspect this could be a problem when a site has no air temperature data to fit. By estimating the amplitutde and mean annual air temperature at a site via the BC Climate module and lat./long. information, we can guarentee one model to be air temperature and the other water. We should set the priors for these values rather narrow to ensure they can only be moved by a fair bit of evidence to the contrary. After fitting the model where the vertical adjustement and amplitude of the air temperature model are clearly defined we get the temperature models fitting the data correctly and even capture the single air temperature values at the beginning and end of the dataset. Furthermore, by adding a double cycle seasonal cosine curve, I was able to capture snow effect dampening of temperature in the spring and fall rain effects that lead to histeresis in the annual cosine curve. Smoothing backward as well as forward improves state estimate certainty when data of a specific state are nearby but this also leads to mislabeleing among more sparse data.
 
-Now we can apply our HMM to raw stream temperature data at multiple sites in the North Thompson. Originally I was thinking this model would be hierarchical but found the global models pulled the site estimates away from the data resulting in poor state probability estimation. The only differenc with the model below is it allows for multiple sites and years to be fit rather than just a single site.
+Now we can apply our HMM to simulated and raw stream temperature data at multiple sites in the North Thompson. Originally I was thinking this model would be hierarchical but found the global models pulled the site estimates away from the data resulting in poor state probability estimation. The only differenc with the model below is it allows for multiple sites and years to be fit rather than just a single site.
+
+
+```{r Multi-Simulated HMM}
+#Simulate
+df = multi_site(n = 20, years = 1, air_ends = T, air = T, randomize = c(T,T))
+#Hourly
+df$hourly = df$hourly %>% group_by(site) %>% mutate(reset = if_else(time==min(time),1,
+                                                  if_else(time==max(time),2,0)))
+#Initial starting parameters
+inits = create_inits(air_A = df$coefs$air_A, air_mean = df$coefs$air_meanT, chains = 4)
+                                                                    
+#Compile and run model.
+compile = stan_model("./stan/04_HMM_MultiSite.stan")
+mod = sampling(compile, data= list(N = length(df$hourly$temperature),
+                                 S = length(unique(df$hourly$site)),
+                                 site = df$hourly$site,
+                                 R = length(unique(df$hourly$site)),
+                                 rowe = df$hourly$site,
+                                 K = 2,
+                                 y = round(df$hourly$temperature,2),
+                                 d = df$hourly$d_cycle,
+                                 reset = df$hourly$reset,
+                                 accum = which(df$hourly$reset==2),
+                                 n = df$hourly$n,
+                                 air_A = df$coefs$air_A,
+                                 air_mean = df$coefs$air_meanT),
+               pars = c("alpha_w","A","tau_est","snow","sigma","alpha_tk"),
+               init = inits, iter = 500, chains = 4,
+               control = list(adapt_delta = .8, max_treedepth = 10))
+write_rds(mod, "./stan/HourlyMultiSite_500_sim.rds")
+
+
+#Daily 
+df$daily = df$daily %>% group_by(site) %>% mutate(reset = if_else(time==min(time),1,
+                                                  if_else(time==max(time),2,0)))
+#Compile and run model.
+compile = stan_model("./stan/04_HMM_MultiSite.stan")
+mod = sampling(compile, data= list(N = length(df$daily$temperature),
+                                 S = length(unique(df$daily$site)),
+                                 site = df$daily$site,
+                                 R = length(unique(df$daily$site)),
+                                 rowe = df$daily$site,
+                                 K = 2,
+                                 y = round(df$daily$temperature,2),
+                                 d = df$daily$d,
+                                 reset = df$daily$reset,
+                                 accum = which(df$daily$reset==2),
+                                 n = df$daily$n,
+                                 air_A = df$coefs$air_A,
+                                 air_mean = df$coefs$air_meanT),
+               pars = c("alpha_w","A","tau_est","snow","sigma","alpha_tk"),
+               init = inits, iter = 500, chains = 4,
+               control = list(adapt_delta = .8, max_treedepth = 10))
+write_rds(mod, "./stan/DailyMultiSite_500_sim.rds")
+```
+
 
 ```{r Thompson Watershed HMM}
 #Read in water temperature data and add columns; 
@@ -549,10 +605,10 @@ Now we can apply our HMM to raw stream temperature data at multiple sites in the
 # 2.) describing the number of days in an annual cycle (i.e, n),
 # 3.) enumerating the years from first to last (i.e., year_no),
 # 4.) noting the beginning and end of each year.
-
+# sites = c(49,63,54,39,1,80,87,93,100,77)
 #Hourly
 df = read_rds("./Data/thompson_water.rds") %>% 
-  filter(site %in% c(49,63,54,39,1,80,87,93,100,77)) %>% 
+  filter(site == 77) %>% 
   mutate(day = ymd(floor_date(date, unit = "day")), n = n_init(date)*2,
          d = (yday(date)*24) + (hour(date)-24),
          year = year(date), year_no = year-(min(year)-1)) %>% 
@@ -560,7 +616,7 @@ df = read_rds("./Data/thompson_water.rds") %>%
                                                   if_else(date==max(date),2,0))) %>% ungroup
 #Daily 
 df = read_rds("./Data/thompson_daily_water_manual_clean.rds") %>% 
-  filter(site %in% c(49,63,54,39,1,80,87,93,100,77)) %>%
+  filter(site == 77) %>%
   mutate(day = ymd(date), year = year(date), d = yday(date),
          year_no = year - (min(year)-1)) %>% 
   group_by(site, year) %>% mutate(reset = if_else(day==min(day),1,
@@ -575,7 +631,7 @@ df = df %>% left_join(.,ref)
 
 #Read in climate data, summarize by year and subset.
 df_inits = read_rds("./Data/thompson_air_inits.rds") %>% 
-  filter(site %in% c(49,63,54,39,1,80,87,93,100,77)) %>%  
+  filter(site == 77) %>%  
   mutate(year_no = year - (min(year)-1))
 df_inits = df %>% select(site, year) %>% distinct() %>% left_join(., df_inits)
 
@@ -584,7 +640,7 @@ logic = (diff(df$day)>1 & df$reset[-1] == 0)
 df[c(FALSE,logic),"reset"] = 1
 
 #Gather initial values.
-inits = create_inits(air_A = df_inits$air_A, air_mean = df_inits$air_mean, chains = 4, sites = 10)
+inits = create_inits(air_A = df_inits$air_A, air_mean = df_inits$air_mean, chains = 4, sites = 1)
 
 #Add a column counting in sequence the unique pairs of sites and years.
 df = df %>% select(new_id,year_no) %>% distinct() %>% mutate(rowe = c(1:nrow(.))) %>%
@@ -604,17 +660,22 @@ mod = sampling(compile, data= list(N = length(df$temperature),
                                  accum = which(df$reset==2),
                                  n = df$n,
                                  air_A = df_inits$air_A,
-                                 air_mean = df_inits$air_mean),
-               pars = c("alpha_w","A","tau_est","snow","sigma","alpha_tk"),
-               init = inits, iter = 500, chains = 4,
+                                 air_mean = df_inits$air_mean,
+                                 precip = 1),
+               pars = c("accumulator","annual","season","annual_gen","season_gen",
+                        "unalpha_tk","logbeta","loggamma","beta"),
+               include = FALSE, init = inits, iter = 500, chains = 4,
                control = list(adapt_delta = .8, max_treedepth = 10))
-write_rds(mod, "./stan/HourlyMultiSite_500_obs.rds")
+write_rds(mod, "./stan/HourlyMultiSite_500_obs77.rds")
 
 shinystan::launch_shinystan(mod)
 
+ggplot(df,aes(date, temperature, color = as.factor(rowe))) + geom_point() + facet_wrap(~site)
+
 
   #Read in model.
-mod = read_rds(path = "./stan/Mod_Results/MultiSite_500_obs.rds")
+mod_d = read_rds(path = "./stan/Mod_Results/MultiSite_500_obs.rds")
+mod = read_rds(path = "./stan/Mod_Results/HourlyMultiSite_500_obs.rds")
 
 #---- Gather & Organize Coefficients ----#
 

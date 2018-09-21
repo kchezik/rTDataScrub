@@ -18,6 +18,7 @@ data {
   real<lower=0> n[N];               // Define the number of data points in a annual cycle
   vector<lower=0>[R] air_A;         // PRISM air annual temperature range (i.e., amplitude)
   vector[R] air_mean;               // PRISM air mean temperature estimate
+  int precip;                       // If 1, run the underlying precipitation model
 }
 
 parameters {
@@ -28,7 +29,7 @@ parameters {
   // Seasonal Temperature Model for Air and Water
   vector<lower=0,upper=20>[R] alpha_w; // Mean annual water temperature
   positive_ordered[2] A[R];            // Annual temperature amplitude
-  positive_ordered[3] tau_est[S];      // Annual location parameter
+  positive_ordered[2] tau_est[S];      // Annual location parameter
   vector<lower=0,upper=3>[R] snow;     // Seasonal snow/rain effect
   positive_ordered[2] sigma[S];        // Seasonal variance parameter
 }
@@ -53,11 +54,15 @@ transformed parameters {
            if(j == 1){
              //Water annual cycle
              annual= alpha_w[rowe[t]]+ A[rowe[t],j]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
-             //Water seasonal adjustment
-             season = snow[rowe[t]]*cos(2*pi()*d[t]/(n[t]/2)+tau_est[site[t],3]*pi());
-             accumulator[i]= log(A_ij[i,j])+
-                             normal_lpdf(y[t]|annual+ season, sigma[site[t],j]);
-
+             if(precip == 1){
+               //Water seasonal adjustment
+               season = snow[rowe[t]]*cos(2*pi()*d[t]/(n[t]/2)+(tau_est[site[t],j]+0.65)*pi());
+               accumulator[i]= log(A_ij[i,j])+
+                               normal_lpdf(y[t]|annual+ season, sigma[site[t],j]);
+             } else{
+               accumulator[i]= log(A_ij[i,j])+
+                               normal_lpdf(y[t]|annual, sigma[site[t],j]);
+             }
              //if data is continuous consider previous data points' likelihood
              if(reset[t]==0 || reset[t]==2) accumulator[i] += unalpha_tk[t-1,i];
            }
@@ -65,7 +70,6 @@ transformed parameters {
              //Air
              annual= air_mean[rowe[t]]+ air_A[rowe[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
              accumulator[i]= log(A_ij[i,j])+ normal_lpdf(y[t]|annual, sigma[site[t],j]);
-
              //if data is continuous consider previous data points' likelihood
              if(reset[t]==0 || reset[t]==2) accumulator[i] += unalpha_tk[t-1,i];
            }
@@ -91,13 +95,12 @@ model {
       A[,1] ~ lognormal(2, 1);
 
     // Model tau
-      tau_est[,1] ~ normal(0.9,.15);
-      tau_est[,2] ~ normal(1.1,.15);
-      tau_est[,3] ~ normal(1.5,.15);
+      tau_est[,1] ~ normal(0.85,.01);
+      tau_est[,2] ~ normal(0.9,.01);
 
     // Remaining Variance Priors
-      sigma[,1] ~ student_t(3,1,1);
-      sigma[,2] ~ student_t(3,3,2);
+      sigma[,1] ~ student_t(10,1,2);
+      sigma[,2] ~ student_t(10,4,2);
 
   // Enforce order on water amplitude.
     A[,2] ~ normal(air_A,0.01);
@@ -149,14 +152,19 @@ generated quantities {
                           // backwards t + transition prob + local evidence at t
           if(i == 1) {
             annual_gen= alpha_w[rowe[t]]+ A[rowe[t],i]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],i]*pi());
-            season_gen = snow[rowe[t]]*cos(2*pi()*d[t]/(n[t]/2)+tau_est[site[t],3]*pi());
-            accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                              student_t_lpdf(y[t]|3, annual_gen + season_gen, sigma[site[t],i]);
+            if(precip == 1){
+              season_gen = snow[rowe[t]]*cos(2*pi()*d[t]/(n[t]/2)+(tau_est[site[t],i]+0.65)*pi());
+              accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
+                              normal_lpdf(y[t]|annual_gen + season_gen, sigma[site[t],i]);
+            } else{
+               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
+                              normal_lpdf(y[t]|annual_gen, sigma[site[t],i]);
+            }
           }
           if(i == 2){
             annual_gen= air_mean[rowe[t]]+ air_A[rowe[t]]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],i]*pi());
             accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
-                              student_t_lpdf(y[t]|3, annual_gen, sigma[site[t],i]);
+                              normal_lpdf(y[t]|annual_gen, sigma[site[t],i]);
           }
         }
         logbeta[t-1,j] = log_sum_exp(accumulator);
