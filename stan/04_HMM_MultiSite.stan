@@ -2,6 +2,19 @@ functions {
   vector normalize(vector x) {
     return x / sum(x);
   }
+  // Creates a cosine curve upper bound by zero during the spring ...
+  // ... to account for hysteresis in the water temperature curve ...
+  // ... due to snow melt cooling the stream. The values of this
+  // ... cosine curve is modified by a spring snow effect coefficient.
+  real stream_snow(real n, real d, real tau) {
+    // calulate the first derivative.
+    real rate = -sin(2*pi()*d/n + tau*pi());
+    // if the derivative is positive calculate the snow adjustment, ...
+    // ... otherwise return 0.
+    if(rate>0) {
+      return rate*-1;
+    } else return 0;
+  }
 }
 
 data {
@@ -56,7 +69,8 @@ transformed parameters {
              annual= alpha_w[rowe[t]]+ A[rowe[t],j]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],j]*pi());
              if(precip == 1){
                //Water seasonal adjustment
-               season = snow[rowe[t]]*cos(2*pi()*d[t]/(n[t]/2)+(tau_est[site[t],j]+0.65)*pi());
+               season = snow[rowe[t]]*cos(2*pi()*d[t]/(n[t]/2)+(tau_est[site[t],j]+0.5)*pi());
+               //season = stream_snow(n[t],d[t],tau_est[site[t],j])*snow[rowe[t]];
                accumulator[i]= log(A_ij[i,j])+
                                normal_lpdf(y[t]|annual+ season, sigma[site[t],j]);
              } else{
@@ -95,8 +109,8 @@ model {
       A[,1] ~ lognormal(2, 1);
 
     // Model tau
-      tau_est[,1] ~ normal(0.85,.01);
-      tau_est[,2] ~ normal(0.9,.01);
+      tau_est[,1] ~ normal(0.85,.05);
+      tau_est[,2] ~ normal(0.9,.05);
 
     // Remaining Variance Priors
       sigma[,1] ~ student_t(10,1,2);
@@ -153,7 +167,8 @@ generated quantities {
           if(i == 1) {
             annual_gen= alpha_w[rowe[t]]+ A[rowe[t],i]*cos(2*pi()*d[t]/n[t]+ tau_est[site[t],i]*pi());
             if(precip == 1){
-              season_gen = snow[rowe[t]]*cos(2*pi()*d[t]/(n[t]/2)+(tau_est[site[t],i]+0.65)*pi());
+              season_gen = snow[rowe[t]]*cos(2*pi()*d[t]/(n[t]/2)+(tau_est[site[t],i]+0.5)*pi());
+              //season_gen = stream_snow(n[t],d[t],tau_est[site[t],j])*snow[rowe[t]];
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
                               normal_lpdf(y[t]|annual_gen + season_gen, sigma[site[t],i]);
             } else{

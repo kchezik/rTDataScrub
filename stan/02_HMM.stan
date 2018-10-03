@@ -22,9 +22,9 @@ parameters {
 
   // Seasonal Temperature Model for Air and Water
   real<lower=0> alpha_w;
-  positive_ordered[2] A;
+  positive_ordered[2] A[1];
   real<lower=0, upper=3> snow;
-  positive_ordered[2] tau_est;
+  positive_ordered[2] tau_est[1];
   positive_ordered[2] sigma;
 }
 
@@ -47,10 +47,10 @@ transformed parameters {
                             // belief state + transition prob + local evidence at t
            if(j == 1){
              //Water annual cycle
-             annual= alpha_w+ A[j]*cos(2*pi()*d[t]/n[t]+ tau_est[j]*pi());
+             annual= alpha_w+ A[1,j]*cos(2*pi()*d[t]/n[t]+ tau_est[1,j]*pi());
              if(precip == 1){
              //Water seasonal adjustment
-               season = snow*cos(2*pi()*d[t]/(n[t]/2)+(tau_est[j]+.65)*pi());
+               season = snow*cos(2*pi()*d[t]/(n[t]/2)+(tau_est[1,j]+.65)*pi());
                accumulator[i]= log(A_ij[i,j])+ normal_lpdf(y[t]|annual+ season, sigma[j]);
              } else accumulator[i]= log(A_ij[i,j])+ normal_lpdf(y[t]|annual, sigma[j]);
 
@@ -59,7 +59,7 @@ transformed parameters {
            }
            if(j == 2){
              //Air
-             annual= air_mean+ air_A*cos(2*pi()*d[t]/n[t]+ tau_est[j]*pi());
+             annual= air_mean+ air_A*cos(2*pi()*d[t]/n[t]+ tau_est[1,j]*pi());
              accumulator[i]= log(A_ij[i,j])+ normal_lpdf(y[t]|annual, sigma[j]);
 
              //if data is continuous consider previous data points' likelihood
@@ -83,18 +83,18 @@ model {
     alpha_w ~ lognormal(2, 1);
 
   // Model of temperature amplitude parameter.
-    A[1] ~ lognormal(2, 1);
+    A[,1] ~ lognormal(2, 1);
 
   // Model tau
-    tau_est[1] ~ normal(0.85,.01);
-    tau_est[2] ~ normal(.9,.01);
+    tau_est[,1] ~ normal(0.85,.01);
+    tau_est[,2] ~ normal(.9,.01);
 
   // Remaining Variance Priors
     sigma[1] ~ student_t(10,1,2);
     sigma[2] ~ student_t(10,4,2);
 
   // Enforce order on water amplitude.
-    A[2] ~ normal(air_A, 0.01);
+    A[,2] ~ normal(air_A, 0.01);
 
   // Return log probabilities for each model.
     target += log_sum_exp(unalpha_tk[N]); // Note: update based only on last unalpha_tk
@@ -134,9 +134,9 @@ generated quantities {
                           // Murphy (2012) Eq. 17.58
                           // backwards t + transition prob + local evidence at t
           if(i == 1) {
-            annual_gen= alpha_w+ A[i]*cos(2*pi()*d[t]/n[t]+ tau_est[i]*pi());
+            annual_gen= alpha_w+ A[1,i]*cos(2*pi()*d[t]/n[t]+ tau_est[1,i]*pi());
             if(precip == 1){
-              season_gen = snow*cos(2*pi()*d[t]/(n[t]/2)+(tau_est[i]+.65)*pi());
+              season_gen = snow*cos(2*pi()*d[t]/(n[t]/2)+(tau_est[1,i]+.65)*pi());
               accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
                                normal_lpdf(y[t]|annual_gen + season_gen, sigma[i]);
             } else {
@@ -145,7 +145,7 @@ generated quantities {
             }
           }
           if(i == 2){
-            annual_gen= air_mean+ air_A*cos(2*pi()*d[t]/n[t]+ tau_est[i]*pi());
+            annual_gen= air_mean+ air_A*cos(2*pi()*d[t]/n[t]+ tau_est[1,i]*pi());
             accumulator[i]= logbeta[t,i]+ log(A_ij[j,i])+
                               normal_lpdf(y[t]|annual_gen, sigma[i]);
           }
