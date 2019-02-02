@@ -860,6 +860,66 @@ p_full = gridExtra::grid.arrange(p, p_single[[1]], p_single[[2]], p_single[[3]],
 ggsave(filename = "Probs_Obs_Full.png", path = "~/Documents/rTDataScrub/images", plot = p_full, width = 13, height = 8.5, units = "in",  device = "png", dpi = 500)
 ```
 
+```{r Defense Talk}
+single = test %>% ungroup() %>% filter(site == 49, !is.na(temperature), year == 2015)
+p1 = ggplot(single) +
+  geom_point(aes(day, temperature), colour = "#2b6aff", size = .1) +
+  geom_hline(yintercept = 0, size = .2, linetype = 3, colour = "white") +
+  labs(x = "Year-Month", y = expression("Temperature ("*degree*"C)")) +
+  ylim(-6, 33)+
+  ggthemes::theme_tufte() +
+  theme(axis.text = element_text(colour = "white"),
+        axis.ticks = element_line(colour = "white"),
+        axis.title = element_text(colour = "white"),
+        plot.background = element_rect(colour = NA, fill = "transparent"),
+        panel.background = element_rect(colour = NA, fill = "transparent"))
+  
+ggsave(filename = "temp_examp.png", path = "~/sfuvault/Thesis/Defense_Talk/", plot = p1, width = 6.5, height = 5, units = "in", device = "png", bg = "transparent") 
+
+p2 = ggplot(single) +
+  #geom_point(aes(day, temperature), colour = "#2b6aff", size = .1) +
+  geom_point(aes(day, temperature, color = est_source), size = .1) +
+  scale_color_manual(values = c("water" = "#2b6aff", "air" = "#ffc021")) +
+  geom_line(aes(day, air), color = "#EE220C") +
+  geom_line(aes(day, water), color = "#00A2FF") +
+  geom_hline(yintercept = 0, size = .2, linetype = 3, colour = "white") +
+  labs(x = "Year-Month", y = expression("Temperature ("*degree*"C)")) +
+  ylim(-6, 33)+
+  ggthemes::theme_tufte() +
+  theme(legend.position = 'none',
+        axis.text = element_text(colour = "white"),
+        axis.ticks = element_line(colour = "white"),
+        axis.title = element_text(colour = "white"),
+        plot.background = element_rect(colour = NA, fill = "transparent"),
+        panel.background = element_rect(colour = NA, fill = "transparent"))
+ggsave(filename = "temp_examp3.png", path = "~/sfuvault/Thesis/Defense_Talk/", plot = p2, width = 6.5, height = 5, units = "in", device = "png", bg = "transparent") 
+
+single = single %>% mutate(SE_Amin = if_else(air-1.97*std_a>-6,air-1.97*std_a,-6),
+                  SE_Amax = if_else(air+1.97*std_a<33,air+1.97*std_a,33),
+                  SE_Wmin = if_else(water-1.97*std_w>-6,water-1.97*std_w,-6),
+                  SE_Wmax = if_else(water+1.97*std_w<33,water+1.97*std_w,33))
+p3 = ggplot(single) +
+  geom_ribbon(aes(x=day,ymin=SE_Amin,ymax=SE_Amax), alpha = .1, fill = "#FF644E") +
+  geom_ribbon(aes(x=day,ymin=SE_Wmin,ymax=SE_Wmax), alpha = .1, fill = "#73FDEA") +
+  #geom_point(aes(day, temperature), colour = "#2b6aff", size = .1) +
+  geom_point(aes(day, temperature, color = est_source), size = .1) +
+  scale_color_manual(values = c("water" = "#2b6aff", "air" = "#ffc021")) +
+  geom_line(aes(day, air), color = "#EE220C") +
+  geom_line(aes(day, water), color = "#00A2FF") +
+  geom_hline(yintercept = 0, size = .2, linetype = 3, colour = "white") +
+  labs(x = "Year-Month", y = expression("Temperature ("*degree*"C)")) +
+  ylim(-6, 33)+
+  ggthemes::theme_tufte() +
+  theme(legend.position = 'none',
+        axis.text = element_text(colour = "white"),
+        axis.ticks = element_line(colour = "white"),
+        axis.title = element_text(colour = "white"),
+        plot.background = element_rect(colour = NA, fill = "transparent"),
+        panel.background = element_rect(colour = NA, fill = "transparent"))
+ggsave(filename = "temp_examp4.png", path = "~/sfuvault/Thesis/Defense_Talk/", plot = p3, width = 6.5, height = 5, units = "in", device = "png", bg = "transparent") 
+
+```
+
 ## Notes on Development
 
 #### Amplitude Global Model
