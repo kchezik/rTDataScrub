@@ -7,7 +7,7 @@ output: html_document
 
 ```{r StartUp Stan}
 #Get necessary libraries.
-library(tidyverse); library(rstan); library(lubridate)
+library(tidyverse); library(rstan); library(lubridate); library(tibble)
 #Initiate cores and make sure unchanged models are not recompiled.
 options(mc.cores = parallel::detectCores(), auto_write = TRUE)
 ```
@@ -213,7 +213,7 @@ multi_site = function(n = 1, years = 1, air_ends = F, air = F, randomize = c(T,T
 }
 
 
-### Functions that approximate values to constraine the search space. ###
+### Functions that approximate values to constrain the search space. ###
 
 #Provide the number of observations in a year. Will determine the number of periods.
 n_init = function(time){
@@ -221,7 +221,7 @@ n_init = function(time){
   if(length(time) == 1) cc = 365
   else {
     dur = data.frame(table(as.numeric(as.duration(time[2:length(time)]-time[1:(length(time)-1)])))) %>% 
-      arrange(desc(Freq)) %>% as.tbl(.)
+      arrange(desc(Freq)) %>% as_tibble(.)
     dur = as.numeric(as.character(dur[[1]]))[1]
     cc = as.numeric(dyears(1)/dur[1])
   }
@@ -399,7 +399,7 @@ Now we'll recapture `alpha`, `A`, `tau`, `rho` and `sigma`.
 df = multi_site(n = 1, years = 1, air_ends = F, air = F, randomize = c(F,F))
 
 #Compile and run model.
-compile = stan_model("./stan/01_AW_sim.stan")
+compile = stan_model("../stan/01_AW_sim.stan")
 mod = sampling(compile,
                data = list(N = length(df$daily$temperature), y = df$daily$temperature),
                iter = 1000, chains = 4)
